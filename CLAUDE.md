@@ -4,7 +4,7 @@
 
 AI Delivery Comparator: an interactive page that compares local AI hardware, rented GPUs, subscriptions and APIs over a 1 to 5 year horizon, for a single user, a small business or an enterprise. It works like a phone-plan picker: given size, usage, quality target and data sensitivity, it recommends a delivery model (or combination) and shows the cumulative TCO curves and break-even points.
 
-The full specification is `docs/spec-v0.3.md`. It is the source of truth. Read the relevant section before implementing anything, and cite section numbers in commit messages and comments where useful.
+The full specification is `docs/spec.md` (currently v0.4). It is the source of truth. Read the relevant section before implementing anything, and cite section numbers in commit messages and comments where useful.
 
 Client: Michael Borck (LocoLabo, Curtin University). Data: LocoLabo TCO Data Pack, 31 August 2026, in `data/`.
 
@@ -15,7 +15,7 @@ One self-contained file, `dist/comparator.html`, that opens offline by double-cl
 ## Structure
 
 ```
-docs/spec-v0.3.md          specification (source of truth)
+docs/spec.md               specification, current version (source of truth)
 data/*.csv, data/README.md LocoLabo data pack (do not edit)
 data/assumptions.json      spec defaults not in the pack (each with status "assumed")
 scripts/build-defaults.js  CSV + assumptions.json -> src/defaults.json
@@ -74,6 +74,7 @@ Run the tests after every engine change. Do not finish a task with failing tests
 
 ## Working style
 
+- Changes arrive as change requests in `docs/change-requests/`. The spec diff named in the CR is the authority for what changes. Do not change anything a CR does not mention.
 - Plan before coding a new phase: list the files you will create, the spec sections they implement, and any spec ambiguities. Ask about ambiguities rather than guessing when the answer changes results.
 - Small commits, one spec area at a time, message format: `engine: subscription windows (spec 6.10)`.
 - If you need to deviate from the spec, write the deviation and the reason in `docs/decisions.md` and flag it in your summary.

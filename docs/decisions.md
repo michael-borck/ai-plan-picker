@@ -252,3 +252,9 @@ imports as JSON with unknown-id reporting; user-supplied edits also persist
 to localStorage separately so a shared link or fresh open keeps them.
 Engine side is covered by tests/settings.test.js (nine tests), including
 "optimistic makes the local box cheaper than pessimistic".
+
+# CR-001: task layer, top-up and single-user scope
+
+Decisions made while implementing `docs/change-requests/CR-001-task-layer.md`
+(spec v0.4). Each entry below records a resolution or a changed test
+expectation, per CR section 3 item 9 and section 4.
