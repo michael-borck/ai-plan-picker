@@ -13,23 +13,23 @@ one commit per work item, tags on spec versions.
 
 ## Phase B: CR-001 task layer (branch `cr-001-task-layer`)
 
-- [ ] Part A: spec renamed to `docs/spec.md`, tagged `spec-v0.3`, v0.4 spec
+- [x] Part A: spec renamed to `docs/spec.md`, tagged `spec-v0.3`, v0.4 spec
       committed, CR and reference engine archived
-- [ ] Item 0: CLAUDE.md change-request process, decisions.md CR-001 heading
-- [ ] Item 1: configuration (task types, success rates, rules, features,
+- [x] Item 0: CLAUDE.md change-request process, decisions.md CR-001 heading
+- [x] Item 1: configuration (task types, success rates, rules, features,
       broker plan rows, option attributes)
-- [ ] Item 2: task layer module (`taskLayer.js`)
-- [ ] Item 3: weekly capacity and smallest-first fill, own share
-- [ ] Item 4: request-limited plans
-- [ ] Item 5: pay-as-you-go top-up in every TCO
-- [ ] Item 6: verbosity-only efficiency, retry factor removed
-- [ ] Item 7: eligibility = completed week; recommendation text
-- [ ] Item 8: "Can it do your week?" grid, table columns, simple-view rules,
+- [x] Item 2: task layer module (`taskLayer.js`)
+- [x] Item 3: weekly capacity and smallest-first fill, own share
+- [x] Item 4: request-limited plans
+- [x] Item 5: pay-as-you-go top-up in every TCO
+- [x] Item 6: verbosity-only efficiency, retry factor removed
+- [x] Item 7: eligibility = completed week; recommendation text
+- [x] Item 8: "Can it do your week?" grid, table columns, simple-view rules,
       own-week editor, org tabs hidden
-- [ ] Item 9: tests N1 to N11, existing expectations updated with reasons,
+- [x] Item 9: tests N1 to N11, existing expectations updated with reasons,
       example.js prints the grid
-- [ ] Item 12: "Pays off at about N times this workload" line
-- [ ] Merge to main
+- [x] Item 12: "Pays off at about N times this workload" line
+- [x] Merged to main
 
 ## Phase C: command line reports
 
