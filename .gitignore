@@ -1,0 +1,5 @@
+# macOS noise (external drive AppleDouble files, Finder metadata)
+._*
+.DS_Store
+# dependencies (none required, but keep the guard)
+node_modules/
