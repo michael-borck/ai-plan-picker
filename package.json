@@ -7,9 +7,14 @@
   "scripts": {
     "defaults": "node scripts/build-defaults.js",
     "test": "node --test tests/",
-    "build": "node build.js"
+    "build": "node build.js",
+    "report": "node bin/comparator.js",
+    "sweep": "node bin/comparator.js --sweep"
   },
   "engines": {
     "node": ">=20"
+  },
+  "bin": {
+    "ai-plan-picker": "bin/comparator.js"
   }
 }

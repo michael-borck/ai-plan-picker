@@ -694,7 +694,7 @@ export function compute(config, inputs) {
     if (winner.family === 'broker' || winner.id === 'sub_free') {
       const paid = ranked.passing && ranked.passing.length ? ranked.passing.filter(o => !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free' && o.tco_at_horizon > ZERO)[0] : null;
       if (paid) {
-        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inputs.horizon_years + ' years.';
+        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inp.horizon_years + ' years.';
       }
       if (winner.family === 'broker') {
         text += ' The free route means request limits (' + winner.request_plan.requests_per_day + ' a day), slower and less reliable replies (about ' + Math.round(winner.request_plan.reliability * HUNDRED) + '%), and data terms that may allow training on your prompts.';
