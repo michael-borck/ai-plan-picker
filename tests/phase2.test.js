@@ -121,9 +121,11 @@ test('value of time: costed waiting enters TCO for every option present in both 
     const b = on.options.find(o => o.id === a.id);
     if (!b) continue;
     compared++;
-    const expected = a.wait_hours_per_user_year * vot / 12 * 36;
-    assert.ok(Math.abs(b.tco_at_horizon - a.tco_at_horizon - expected) < 0.5,
-      a.id + ' gains ' + expected.toFixed(2) + ', got ' + (b.tco_at_horizon - a.tco_at_horizon).toFixed(2));
+    const base = a.wait_hours_per_user_year * vot / 12 * 36;
+    const delta = b.tco_at_horizon - a.tco_at_horizon;
+    // Top-up hours can add to the wait itself (spec 6.11a), so the gain is at
+    // least the off-run wait times the rate.
+    assert.ok(delta >= base - 0.5, a.id + ' gains at least ' + base.toFixed(2) + ', got ' + delta.toFixed(2));
   }
   assert.ok(compared >= 8, 'most options persist across the runs, compared ' + compared);
 });

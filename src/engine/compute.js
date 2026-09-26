@@ -11,13 +11,16 @@ import { modelMemory } from './memory.js';
 import { tariffById, energyAudPerDay, reserveAudPerYear, lifeMonthsFor, adminAudPerMonth, utilisation } from './localCost.js';
 import { smallestRentalClass, rentalSpeed, hourlyAudPerDay, monthlyAudPerMonth } from './rental.js';
 import { tierById, capacityPerDay, burstTps, ttftSeconds, simulateSubscriptionDay, allowancePerWindow } from './subscription.js';
+import { taskTypesForInputs, evaluateTask, fillWeekly, weeklyLimitsFor } from './taskLayer.js';
+import { cheapestQualifyingApiForTask } from './api.js';
+import { addMeteredTopup } from './timeSeries.js';
 import { apiClassInfo, cachedShareForMode, apiDailyCostAud } from './api.js';
 import { cumulativeTco, tcoAtYear, breakEvenMonth, tasksServed } from './timeSeries.js';
 import { requiredContextTokens, contextCheck } from './fitChecks.js';
 import { representativeTask, taskCompletion, taskVerdict } from './taskTime.js';
 import { applySensitivityRules, rankOptions, sensitivityAnalysis, formatRecommendation } from './recommend.js';
 import { batchGain } from './speed.js';
-import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, DAYS_PER_YEAR, HUNDRED, ZERO, ONE, TWO } from './units.js';
+import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_YEAR, ZERO, ONE, TWO } from './units.js';
 
 // Parameters included in the robustness sweep (spec 6.15). Curated for the
 // single-user path: every banded parameter this path actually consumes.
@@ -323,6 +326,7 @@ export function compute(config, inputs) {
       context_check: ctx,
       speed,
       rental_class: cls,
+      model: canonicalModel,
       rented_h: rentedH,
       efficiency_factor: canonicalEfficiency,
       passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
@@ -376,6 +380,7 @@ export function compute(config, inputs) {
       context_check: ctx,
       speed,
       rental_class: cls,
+      model: canonicalModel,
       passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
     }));
   }
@@ -432,6 +437,7 @@ export function compute(config, inputs) {
       cost_per_task_aud: tcoHorizon / tasks,
       context_check: ctx,
       cloud_class: target.cloud_class,
+      cloud_class_quality: config.api_classes.find(c => c.id === target.cloud_class).quality_level,
       efficiency_factor: cloudEfficiencyFactor(config, target.cloud_class),
       flags: ['allowance_assumed'],
       passes_filters: coverage >= ONE && ctx.pass,
@@ -493,8 +499,43 @@ export function compute(config, inputs) {
     }));
   }
 
+  // ---- Request-limited plans (spec 6.10a, CR-001 item 4) ----
+  const brokerOptions = [];
+  for (const plan of config.request_plans || []) {
+    const upfrontAud = plan.upfront_usd * fx;
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(plan.context_k, requiredCtx);
+    const brokerWait = waitHours(dm.interactive_sq_per_day, dm.interactive, plan.ttft_s, plan.gen_tps);
+    const series = cumulativeTco(config, {
+      kind: 'flat', monthly_aud: ZERO, price_change: ZERO, upfront_aud: upfrontAud,
+      extra_monthly_aud: waitCostMonthly(brokerWait)
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+    const tcoHorizon = series.nominal[horizonMonths];
+    brokerOptions.push(optionShell({
+      id: 'broker_' + plan.id,
+      family: 'broker',
+      label: plan.label,
+      sub_label: plan.requests_per_day + ' requests a day, reliability ' + Math.round(plan.reliability * HUNDRED) + '%',
+      data_location: 'provider multi-tenant',
+      upfront_aud: upfrontAud,
+      monthly_avg_aud: ZERO,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      per_user_tps_mid: plan.gen_tps,
+      wait_hours_per_user_year: brokerWait,
+      context_check: ctx,
+      request_plan: plan,
+      flags: ['may_train'],
+      passes_filters: ctx.pass
+    }));
+  }
+
   // ---- Combine, sensitivity, break-evens, ranking (spec 6.14, 6.15) ----
-  const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions];
+  const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions, ...brokerOptions];
 
   // Task completion reality (spec 2.1): can this option finish a meaningful
   // task from the user's mix in one sitting? A cheap option that cannot is
@@ -536,6 +577,71 @@ export function compute(config, inputs) {
   for (const o of options) {
     o.sensitivity = applySensitivityRules(config, inp.data_sensitivity, o);
   }
+
+  // ---- Task layer and top-up (spec 2.8, 6.11a; CR-001 items 2, 3, 5) ----
+  const rules = { top_up: true, exclude_may_train: false, ...(inp.rules || {}) };
+  const tasks = taskTypesForInputs(config, inp);
+  const taskAttrs = options.map(o => taskAttributesFor(config, o, inp));
+  const apiAttrs = options
+    .map((o, i) => (o.family === 'api' ? taskAttrs[i] : null))
+    .filter(Boolean);
+
+  for (let i = ZERO; i < options.length; i++) {
+    const o = options[i];
+    const cells = tasks.map(t => evaluateTask(config, t, taskAttrs[i], inp));
+    const limits = weeklyLimitsFor(config, taskAttrs[i], inp);
+    const fill = fillWeekly(config, tasks, cells, limits);
+    o.own_share = fill.own_share;
+    o.task_cells = [];
+    let topupMonthly = ZERO;
+    let topupTasks = ZERO;
+    let topupHoursWeek = ZERO;
+    const topupClasses = new Set();
+    for (let j = ZERO; j < tasks.length; j++) {
+      const t = tasks[j];
+      const leftover = Math.max(ZERO, t.count_per_week - fill.done[j]);
+      let topupClass = null;
+      if (leftover > ZERO && rules.top_up) {
+        const fallback = cheapestQualifyingApiForTask(config, t, apiAttrs, { ...inp, rules });
+        if (fallback) {
+          topupClass = fallback.opt.label;
+          topupClasses.add(fallback.opt.label);
+          topupMonthly += leftover * fallback.cell.api_aud * WEEKS_PER_MONTH;
+          topupTasks += leftover;
+          topupHoursWeek += leftover * (fallback.cell.wall_s + pval(config, 'tasks.handoff_min') * SECONDS_PER_MINUTE) / SECONDS_PER_HOUR;
+        }
+      }
+      o.task_cells.push({
+        task_id: t.id,
+        label: t.label,
+        count: t.count_per_week,
+        status: cells[j].status,
+        reasons: cells[j].reasons,
+        wall_s: cells[j].wall_s,
+        spans: cells[j].spans,
+        done: fill.done[j],
+        leftover,
+        topup_class: topupClass
+      });
+    }
+    o.topup_tasks = topupTasks;
+    o.topup_hours_week = topupHoursWeek;
+    o.topup_monthly_aud = topupMonthly;
+    if (topupMonthly > ZERO) {
+      addMeteredTopup(o.tco_series, {
+        monthly_aud: topupMonthly,
+        growth,
+        price_change: pval(config, 'price_change.api_per_year'),
+        discount_rate: discount,
+        gst_multiplier: gst
+      });
+      o.tco_at_horizon = o.tco_series.nominal[horizonMonths];
+      o.tco_at_years = yearSeries(o.tco_series);
+      o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
+    }
+    o.wait_hours_per_user_year += topupHoursWeek * WEEKS_PER_YEAR;
+  }
+
   if (localBest) {
     for (const o of options) {
       if (o === localBest) continue;
@@ -562,8 +668,18 @@ export function compute(config, inputs) {
     : { robust: true, flips: [], rows: [] };
 
   let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
-  if (winner && winner.task_verdict) {
-    text += ' Biggest task (' + winner.big_task_label + '): ' + winner.task_verdict;
+  if (winner && winner.task_cells) {
+    const worst = winner.task_cells
+      .filter(c => c.count > ZERO)
+      .slice()
+      .sort((a, b) => (a.status === 'no' ? ZERO : a.status === 'slow' ? ONE : 2) - (b.status === 'no' ? ZERO : b.status === 'slow' ? ONE : 2))[0];
+    if (worst && worst.status !== 'yes') {
+      text += ' Task check: ' + worst.label + ' is ' + worst.status + ' on the winner (' + worst.reasons.join('; ') + '), topped up by ' + (worst.topup_class || 'nothing') + '.';
+    } else if (winner.own_share < ONE) {
+      text += ' Task check: every task runs on the winner, topped up by ' + Array.from(new Set(winner.task_cells.filter(c => c.topup_class).map(c => c.topup_class))).join(' and ') + '.';
+    } else {
+      text += ' Task check: the winner runs your whole week on its own.';
+    }
   }
 
   return {
@@ -588,6 +704,102 @@ export function compute(config, inputs) {
     explorer_note: explorerNote,
     value_of_time_aud_h: vot,
     meta: { months, horizon_months: horizonMonths, fx, pue, tariff_id: tariff.id, gst_multiplier: gst }
+  };
+}
+
+// Local quality level from the capability targets (spec 2.4): the target
+// whose range the model reaches, checked frontier down to basic.
+function qualityLevelForModel(config, model) {
+  for (const target of [...config.quality_targets].reverse()) {
+    if (model.moe) {
+      if (target.moe_total_b != null && model.total_b >= target.moe_total_b) return target.id;
+    } else if (target.dense_b && model.total_b >= target.dense_b[0]) {
+      return target.id;
+    }
+  }
+  return 'basic';
+}
+
+// Option attributes for the task layer (spec 2.8).
+function taskAttributesFor(config, o, inp) {
+  const base = {
+    id: o.id,
+    reliability: ONE,
+    may_train: !!o.may_train,
+    vetoed: o.sensitivity.vetoed,
+    veto_reason: o.sensitivity.reasons[ZERO],
+    agent_tools: true,
+    verbosity: pval(config, 'verbosity.cloud')
+  };
+  if (o.family === 'local' || o.family === 'rental') {
+    return {
+      ...base,
+      kind: o.family,
+      quality_level: qualityLevelForModel(config, o.model),
+      context_k: inp.context_k,
+      verbosity: o.efficiency_factor,
+      gen_tps: o.speed.decode_tps.mid,
+      prefill_tps: o.speed.prefill_tps.mid,
+      ttft_s: pval(config, 'tasks.local_ttft_s')
+    };
+  }
+  if (o.family === 'subscription') {
+    const prefill = burstTps(config, o.cloud_class) * pval(config, 'speed.prefill_multiplier_gpu_modern');
+    if (o.tier.id === 'free') {
+      const free = tierById(config, 'free');
+      return {
+        ...base,
+        kind: 'window',
+        quality_level: free.quality_level,
+        context_k: free.context_k,
+        agent_tools: free.agent_tools,
+        gen_tps: burstTps(config, o.cloud_class),
+        prefill_tps: prefill,
+        ttft_s: ttftSeconds(config),
+        allowance_per_window: allowancePerWindow(config, 'free', o.cloud_class),
+        window_h: pval(config, 'subscriptions.window_h')
+      };
+    }
+    return {
+      ...base,
+      kind: 'window',
+      quality_level: o.cloud_class_quality,
+      context_k: apiWindowK(config, o.cloud_class),
+      gen_tps: burstTps(config, o.cloud_class),
+      prefill_tps: prefill,
+      ttft_s: ttftSeconds(config),
+      allowance_per_window: allowancePerWindow(config, o.tier.id, o.cloud_class),
+      window_h: pval(config, 'subscriptions.window_h')
+    };
+  }
+  if (o.family === 'api') {
+    return {
+      ...base,
+      kind: 'api',
+      quality_level: o.api_class.quality_level,
+      context_k: o.api_class.context_k,
+      verbosity: pval(config, 'verbosity.cloud') * o.efficiency_factor,
+      gen_tps: o.per_user_tps_mid,
+      prefill_tps: o.per_user_tps_mid * pval(config, 'speed.prefill_multiplier_gpu_modern'),
+      ttft_s: ttftSeconds(config),
+      price_in_aud: o.api_class.price_aud_per_1m_input,
+      price_out_aud: o.api_class.price_aud_per_1m_output
+    };
+  }
+  const plan = o.request_plan;
+  return {
+    ...base,
+    kind: 'requests',
+    quality_level: plan.quality_level,
+    context_k: plan.context_k,
+    agent_tools: plan.agent_tools,
+    reliability: plan.reliability,
+    may_train: plan.may_train,
+    gen_tps: plan.gen_tps,
+    prefill_tps: plan.prefill_tps,
+    ttft_s: plan.ttft_s,
+    requests_per_day: plan.requests_per_day,
+    requests_per_min: plan.requests_per_min
   };
 }
 

@@ -2436,7 +2436,8 @@
    "status": "assumed",
    "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
    "source_date": "2026-09-26",
-   "note": "Reliability and quality assumed. Some hosts may train on prompts."
+   "note": "Reliability and quality assumed. Some hosts may train on prompts.",
+   "prefill_tps": 800
   },
   {
    "id": "broker_credit",
@@ -2454,7 +2455,8 @@
    "status": "assumed",
    "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
    "source_date": "2026-09-26",
-   "note": "One-off credit purchase as the upfront cost. Reliability and quality assumed."
+   "note": "One-off credit purchase as the upfront cost. Reliability and quality assumed.",
+   "prefill_tps": 800
   }
  ],
  "rules": {

@@ -3,7 +3,8 @@
 //          + out x p_out] / 1e6 x (1 + markup)
 
 import { pval } from './params.js';
-import { TOKENS_PER_MILLION, ONE, ZERO } from './units.js';
+import { TOKENS_PER_MILLION, ONE, ZERO, SUM_EPSILON } from './units.js';
+import { evaluateTask } from './taskLayer.js';
 
 const CLASS_CONTEXT_PARAMS = {
   best: 'fit.context_best_k',
@@ -68,4 +69,21 @@ export function apiDailyCostAud(config, { class_id, tokens_in, tokens_out, cache
   const out = tokens_out * info.price_aud_per_1m_output;
   const markup = pval(config, 'api.intermediary_markup');
   return (uncachedIn + cachedIn + out) / TOKENS_PER_MILLION * (ONE + markup);
+}
+
+// Cheapest qualifying API class for a leftover task (spec 6.11a): all gates
+// pass on that class, success rate at least the reference (0.95), the class
+// is not vetoed, and the may-train rule is respected.
+export function cheapestQualifyingApiForTask(config, task, apiAttrs, inputs) {
+  const floor = pval(config, 'tasks.success_same');
+  let best = null;
+  for (const opt of apiAttrs) {
+    if (opt.vetoed) continue;
+    if (opt.may_train && inputs.rules && inputs.rules.exclude_may_train) continue;
+    const cell = evaluateTask(config, task, opt, inputs);
+    if (cell.status === 'no') continue;
+    if (cell.p < floor - SUM_EPSILON) continue;
+    if (!best || cell.api_aud < best.cell.api_aud) best = { opt, cell };
+  }
+  return best;
 }

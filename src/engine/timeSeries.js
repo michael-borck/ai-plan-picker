@@ -38,8 +38,9 @@ export function cumulativeTco(config, desc, opts = {}) {
   let cumPv = ZERO;
   if (desc.kind === 'local') {
     cum += (desc.capex_aud + desc.setup_aud) * gst;
-    cumPv += cum;
   }
+  if (desc.upfront_aud) cum += desc.upfront_aud * gst;
+  cumPv += cum;
   nominal[ZERO] = cum;
   pv[ZERO] = cumPv;
 
@@ -71,6 +72,14 @@ export function cumulativeTco(config, desc, opts = {}) {
     // Flat additions such as costed waiting time (spec 2.7) carry no growth
     // or price escalation of their own.
     if (desc.extra_monthly_aud) flow += desc.extra_monthly_aud;
+
+    // Pay-as-you-go top-up (spec 6.11a): metered monthly, growing with
+    // demand and falling with API prices, like the API options.
+    if (desc.topup_monthly_aud) {
+      flow += desc.topup_monthly_aud
+        * pow12(ONE + (desc.topup_growth != null ? desc.topup_growth : ZERO), m)
+        * pow12(ONE + (desc.topup_price_change != null ? desc.topup_price_change : ZERO), m);
+    }
 
     flow *= gst;
     cum += flow;
@@ -116,4 +125,21 @@ export function tasksServed(sq_per_day, growth, months, efficiency) {
   }
   if (!(efficiency > ZERO)) return sq;
   return sq / efficiency;
+}
+
+// Add metered top-up (spec 6.11a) to an existing cumulative series in place:
+// a monthly cost that grows with demand and falls with API prices, GST
+// applied. Used when the top-up is computed after the option's own series.
+export function addMeteredTopup(series, { monthly_aud, growth, price_change, discount_rate, gst_multiplier }) {
+  const gst = gst_multiplier != null ? gst_multiplier : ONE;
+  const disc = discount_rate != null ? discount_rate : ZERO;
+  let running = ZERO;
+  let runningPv = ZERO;
+  for (let m = ONE; m <= series.months; m++) {
+    const inc = monthly_aud * pow12(ONE + growth, m) * pow12(ONE + price_change, m) * gst;
+    running += inc;
+    runningPv += inc / Math.pow(ONE + disc, m / MONTHS_PER_YEAR);
+    series.nominal[m] += running;
+    series.pv[m] += runningPv;
+  }
 }

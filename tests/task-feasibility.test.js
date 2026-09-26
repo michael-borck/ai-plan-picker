@@ -67,10 +67,14 @@ test('compute attaches task reality to every option', () => {
   assert.ok(free.task_verdict.includes('windows'));
 });
 
-test('typical chat winners are unaffected but carry verdicts', () => {
+test('typical chat: the broker free plan can cover the week and wins on cost', () => {
+  // CR-001: a broker free plan with 50 requests a day covers a typical chat
+  // week (about 157 requests with retries), so a zero-price plan can now win.
+  // The recommendation text must explain what the free route involves.
   const r = compute(config, { persona: 'typical', quality_target: 'good', horizon_years: 3 });
-  assert.equal(r.recommendation.winner.id, 'api_cheap');
-  assert.ok(r.recommendation.text.includes('Biggest task'));
+  assert.equal(r.recommendation.winner.id, 'broker_broker_free');
+  assert.ok(r.recommendation.winner.own_share >= 1);
+  assert.ok(r.recommendation.text.includes('Task check'), 'the advice names the task layer result');
 });
 
 test('cost per completed task penalises options that run dry', () => {

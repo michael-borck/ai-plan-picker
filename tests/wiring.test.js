@@ -28,7 +28,7 @@ const CASES = [
     moves: o => o.family === 'local' && o.candidate && o.candidate.n_gpu >= 2,
     scenario: { quality_target: 'high' }
   },
-  { id: 'fx.usd_aud', moves: o => o.family === 'rental' },
+  { id: 'fx.usd_aud', moves: o => o.family === 'rental' || o.id === 'broker_broker_credit' },
   { id: 'rental.sessions_per_day', moves: o => o.id.startsWith('rental_hourly') },
   { id: 'power.pue_single_user', moves: o => o.family === 'local' },
   { id: 'ownership.life_secondhand_years', moves: o => o.family === 'local' && o.market === 'secondhand' },
