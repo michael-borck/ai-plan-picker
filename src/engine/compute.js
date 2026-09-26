@@ -669,7 +669,10 @@ export function compute(config, inputs) {
     }
   }
 
-  const sensitivity = (winner && !inp._skip_robustness)
+  // The simple view skips the sensitivity sweep and ribbon entirely: they
+  // feed the tornado, confidence line and ribbon, which live in the
+  // advanced view. Keeps simple-view recalculation inside the spec budget.
+  const sensitivity = (winner && !inp._skip_robustness && !inp.skip_sensitivity)
     ? sensitivityAnalysis(config, {
         ...inp,
         _base_winner_id: winner.id,
@@ -696,7 +699,7 @@ export function compute(config, inputs) {
     void baseSeries;
   }
 
-  let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
+  let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: sensitivity ? { robust: sensitivity.robust, flips: sensitivity.flips } : null });
   if (winner && winner.task_cells) {
     const worst = winner.task_cells
       .filter(c => c.count > ZERO)
@@ -743,7 +746,7 @@ export function compute(config, inputs) {
       winner,
       runner_up: runnerUp,
       passing_count: ranked.passing_count,
-      robustness: { robust: sensitivity.robust, flips: sensitivity.flips },
+      robustness: sensitivity ? { robust: sensitivity.robust, flips: sensitivity.flips } : { robust: null, flips: [] },
       text
     },
     tornado: sensitivity.rows,

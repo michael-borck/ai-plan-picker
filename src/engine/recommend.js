@@ -172,7 +172,9 @@ export function formatRecommendation(config, inputs, { winner, runner_up, robust
       ' (about AUD ' + perUserPerMonth.toFixed(2) + ' per month). No other option passes the filters.');
   }
   parts.push('All figures are estimates.');
-  if (robustness) {
+  if (robustness === null) {
+    parts.push('Confidence check not run in this view.');
+  } else if (robustness) {
     if (robustness.robust) {
       parts.push('Confidence: robust. The choice holds when parameters swing across their low and high bands.');
     } else {

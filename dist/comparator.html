@@ -6609,7 +6609,9 @@ function formatRecommendation(config, inputs, { winner, runner_up, robustness })
       ' (about AUD ' + perUserPerMonth.toFixed(2) + ' per month). No other option passes the filters.');
   }
   parts.push('All figures are estimates.');
-  if (robustness) {
+  if (robustness === null) {
+    parts.push('Confidence check not run in this view.');
+  } else if (robustness) {
     if (robustness.robust) {
       parts.push('Confidence: robust. The choice holds when parameters swing across their low and high bands.');
     } else {
@@ -7426,7 +7428,10 @@ function compute(config, inputs) {
     }
   }
 
-  const sensitivity = (winner && !inp._skip_robustness)
+  // The simple view skips the sensitivity sweep and ribbon entirely: they
+  // feed the tornado, confidence line and ribbon, which live in the
+  // advanced view. Keeps simple-view recalculation inside the spec budget.
+  const sensitivity = (winner && !inp._skip_robustness && !inp.skip_sensitivity)
     ? sensitivityAnalysis(config, {
         ...inp,
         _base_winner_id: winner.id,
@@ -7453,7 +7458,7 @@ function compute(config, inputs) {
     void baseSeries;
   }
 
-  let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
+  let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: sensitivity ? { robust: sensitivity.robust, flips: sensitivity.flips } : null });
   if (winner && winner.task_cells) {
     const worst = winner.task_cells
       .filter(c => c.count > ZERO)
@@ -7500,7 +7505,7 @@ function compute(config, inputs) {
       winner,
       runner_up: runnerUp,
       passing_count: ranked.passing_count,
-      robustness: { robust: sensitivity.robust, flips: sensitivity.flips },
+      robustness: sensitivity ? { robust: sensitivity.robust, flips: sensitivity.flips } : { robust: null, flips: [] },
       text
     },
     tornado: sensitivity.rows,
@@ -9356,6 +9361,7 @@ function recalculate() {
   // The ribbon reuses the sensitivity sweep, so it costs nothing extra, but
   // only the advanced view shows the hero chart, so only it asks.
   engineIn.with_bands = state.view !== 'simple';
+  engineIn.skip_sensitivity = state.view === 'simple';
   const result = compute(CONFIG, engineIn);
   renderAll(CONFIG, result);
   renderChartModeControls(result);

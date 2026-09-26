@@ -138,6 +138,7 @@ function recalculate() {
   // The ribbon reuses the sensitivity sweep, so it costs nothing extra, but
   // only the advanced view shows the hero chart, so only it asks.
   engineIn.with_bands = state.view !== 'simple';
+  engineIn.skip_sensitivity = state.view === 'simple';
   const result = compute(CONFIG, engineIn);
   renderAll(CONFIG, result);
   renderChartModeControls(result);
