@@ -37,7 +37,7 @@ one commit per work item, tags on spec versions.
 - [x] `--sweep` CSV batch
 - [x] `tests/cli.test.js`, package.json `bin` field
 
-## Phase D: v1 polish (spec catch-up)
+## Phase D: v1 polish (spec catch-up) — complete
 
 - [x] Spec 6.4a full ladders (dense 1 to 123, MoE 16/3 to 235/22) and the
       computed four-suggestion no-fit message
