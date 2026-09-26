@@ -147,9 +147,13 @@ footer { max-width: 1180px; margin: 0 auto 2rem; padding: 0 1rem; }
 }
 
 @media print {
-  .tabs, .globals, .grid-inputs, details.more, .chart-box canvas { display: none; }
-  body { background: #fff; }
-  section.card { border: none; page-break-inside: avoid; }
+  .tabs, .globals, .grid-inputs, .subview, .chart-mode, details.more,
+  .chart-box, .simple-toggle, #settings-panel, #settings-backdrop { display: none !important; }
+  body { background: #fff; font-size: 11px; }
+  section.card { border: none; page-break-inside: avoid; padding: 0.4rem 0; }
+  main { max-width: none; padding: 0; }
+  .table-wrap { overflow: visible; }
+  table.compare { font-size: 8px; }
 }
 
 /* Sub-view toggle: Pick a plan | Hardware explorer (spec 4.2). */
@@ -372,6 +376,12 @@ body.settings-open #settings-backdrop { display: block; }
   </section>
 
   <section class="card detailed-only">
+    <h2>Cost per completed task</h2>
+    <div class="chart-box"><canvas id="cost-chart" role="img" aria-label="Cost per completed task by option, log scale"></canvas></div>
+    <p class="chart-note">TCO including top-up, divided by the tasks actually completed this week.</p>
+  </section>
+
+  <section class="card detailed-only">
     <h2>Sensitivity tornado</h2>
     <div class="chart-box"><canvas id="tornado-chart" role="img" aria-label="How each parameter swings the cost gap between the winner and the runner-up"></canvas></div>
     <p class="chart-note" id="tornado-note"></p>
@@ -413,6 +423,12 @@ body.settings-open #settings-backdrop { display: block; }
     <details class="more">
       <summary>Deferred to v2: winner map, combinations routing, business and enterprise tabs.</summary>
     </details>
+  </section>
+
+  <section class="card detailed-only">
+    <h2>Features checklist</h2>
+    <div class="table-wrap" id="features-checklist"></div>
+    <p class="chart-note">Indicative and editable; not scored in v1. Providers differ per product.</p>
   </section>
 
   <section class="card disclaimer">
@@ -1874,6 +1890,17 @@ body.settings-open #settings-backdrop { display: block; }
    "source": "spec 2.8 and 11.7",
    "source_date": "2026-09-26",
    "note": "Agent frameworks reuse context; providers meter cached input cheaply. Banded for the tornado."
+  },
+  "explorer.moe_fit_tolerance": {
+   "label": "MoE alternative size tolerance for no-fit suggestions",
+   "value": 0.35,
+   "low": 0.2,
+   "high": 0.5,
+   "unit": "share of dense size",
+   "status": "assumed",
+   "source": "spec 6.4a no-fit message",
+   "source_date": "2026-09-26",
+   "note": "An MoE rung within this share of the dense size counts as similar."
   }
  },
  "platforms": [
@@ -2494,26 +2521,48 @@ body.settings-open #settings-backdrop { display: block; }
   "dense_b": [
    1,
    3,
+   4,
    7,
    8,
+   12,
    14,
+   24,
+   27,
    32,
-   70
+   49,
+   70,
+   123
   ],
   "moe": [
+   {
+    "total_b": 16,
+    "active_b": 3
+   },
    {
     "total_b": 30,
     "active_b": 3
    },
    {
-    "total_b": 120,
+    "total_b": 80,
+    "active_b": 3
+   },
+   {
+    "total_b": 106,
     "active_b": 12
+   },
+   {
+    "total_b": 117,
+    "active_b": 5
+   },
+   {
+    "total_b": 235,
+    "active_b": 22
    }
   ],
   "status": "assumed",
   "source": "docs/decisions.md D7",
   "source_date": "2026-09-25",
-  "note": "Budget-only mode returns a rung from this ladder, never an in-between size."
+  "note": "Spec 6.4a v0.4 ladders. Budget-only mode returns a rung, never an in-between size."
  },
  "usage_presets": [
   {
@@ -2907,6 +2956,61 @@ body.settings-open #settings-backdrop { display: block; }
   75,
   100
  ],
+ "features_checklist": {
+  "columns": [
+   {
+    "id": "local",
+    "label": "Local box",
+    "yes": [
+     "Code execution",
+     "File upload"
+    ]
+   },
+   {
+    "id": "rental",
+    "label": "Rented GPU",
+    "yes": [
+     "Code execution",
+     "File upload"
+    ]
+   },
+   {
+    "id": "subscription",
+    "label": "Subscription",
+    "yes": [
+     "Web search",
+     "File upload",
+     "Code execution",
+     "Image input",
+     "Voice",
+     "Admin console",
+     "No-training commitment"
+    ]
+   },
+   {
+    "id": "api",
+    "label": "API",
+    "yes": [
+     "Web search",
+     "File upload",
+     "Code execution",
+     "Image input",
+     "Voice"
+    ]
+   },
+   {
+    "id": "broker",
+    "label": "Broker free",
+    "yes": [
+     "Code execution"
+    ]
+   }
+  ],
+  "status": "assumed",
+  "source": "spec 8",
+  "source_date": "2026-09-26",
+  "note": "Indicative and editable; not scored in v1. Providers differ per product."
+ },
  "request_plans": [
   {
    "id": "broker_free",
@@ -6141,6 +6245,8 @@ function profile24(config, { tokens_interactive, tokens_agent, span_h, unattende
 
 
 
+const ZERO_TPS = ZERO;
+
 
 // Model candidates for a quality target (spec 2.4): ladder rungs inside the
 // dense range plus the target's MoE option.
@@ -6190,16 +6296,54 @@ function budgetLadder(config, { budget_aud, bits, context_k, min_speed_tps, must
   return { rung: null, chosen: null, qualifies: false, search: null };
 }
 
-// No-fit suggestions: what would it take to run this model? (spec test T5:
-// "No-fit message with computed alternatives".)
-function noFitAlternatives(config, { model, bits, context_k, streams, must_be_new, min_speed_tps }) {
+// No-fit suggestions (spec 6.4a): all four are computed, never static text.
+// largest_fit: the biggest ladder rung that fits the budget at any speed;
+// cheapest_fit: the budget that would run the model;
+// best_available_tps: the fastest the budget manages for this model;
+// moe_fit: the same-size MoE rung, cheaper to serve.
+function noFitAlternatives(config, { model, bits, context_k, streams, must_be_new, min_speed_tps, budget_aud }) {
   const anyFit = cheapestFit(config, { model, bits, context_k, streams, must_be_new });
   const fastFit = searchConfigs(config, { model, bits, context_k, streams, must_be_new, min_speed_tps }).qualifying[0] || null;
+  let largestFit = null;
+  if (budget_aud != null) {
+    const rungs = [];
+    for (const b of config.model_ladder.dense_b) rungs.push({ total_b: b, active_b: b, moe: false });
+    for (const m of config.model_ladder.moe) rungs.push({ total_b: m.total_b, active_b: m.active_b, moe: true });
+    for (const rung of rungs) {
+      const search = searchConfigs(config, { model: rung, bits, context_k, streams, must_be_new, budget_aud });
+      if (search.qualifying.length && (!largestFit || rung.total_b > largestFit.total_b)) largestFit = rung;
+    }
+  }
+  let bestAvailableTps = ZERO_TPS;
+  if (budget_aud != null) {
+    const search = searchConfigs(config, { model, bits, context_k, streams, must_be_new, budget_aud });
+    for (const c of search.qualifying) bestAvailableTps = Math.max(bestAvailableTps, c.speed.decode_tps.mid);
+    for (const c of search.near_misses) {
+      if (c.speed && c.speed.decode_tps) bestAvailableTps = Math.max(bestAvailableTps, c.speed.decode_tps.mid);
+    }
+  }
+  let moeFit = null;
+  if (!model.moe) {
+    const tolerance = pval(config, 'explorer.moe_fit_tolerance');
+    const candidate = config.model_ladder.moe
+      .filter(m => Math.abs(m.total_b - model.total_b) / model.total_b < tolerance)
+      .sort((a, b) => a.total_b - model.total_b)[0] || config.model_ladder.moe[0];
+    const search = searchConfigs(config, {
+      model: { id: 'moe_alt', total_b: candidate.total_b, active_b: candidate.active_b, moe: true },
+      bits, context_k, streams, must_be_new, min_speed_tps
+    });
+    moeFit = search.qualifying[0] || null;
+  }
   return {
     cheapest_fit: anyFit ? { signature: anyFit.signature, price_aud: anyFit.price_aud, placement: anyFit.placement } : null,
-    cheapest_meeting_speed: fastFit ? { signature: fastFit.signature, price_aud: fastFit.price_aud, placement: fastFit.placement } : null
+    cheapest_meeting_speed: fastFit ? { signature: fastFit.signature, price_aud: fastFit.price_aud, placement: fastFit.placement } : null,
+    largest_fit_b: largestFit ? largestFit.total_b : null,
+    best_available_tps: bestAvailableTps,
+    moe_fit: moeFit ? { total_b: moeFit.model ? moeFit.model.total_b : null, price_aud: moeFit.price_aud } : null
   };
 }
+
+
 
 // Resolve the model for the Hardware explorer (spec 4.2):
 // mode 'fixed' uses the given size; mode 'budget_only' takes the largest
@@ -7256,7 +7400,7 @@ function compute(config, inputs) {
     if (winner.family === 'broker' || winner.id === 'sub_free') {
       const paid = ranked.passing && ranked.passing.length ? ranked.passing.filter(o => !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free' && o.tco_at_horizon > ZERO)[0] : null;
       if (paid) {
-        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inputs.horizon_years + ' years.';
+        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inp.horizon_years + ' years.';
       }
       if (winner.family === 'broker') {
         text += ' The free route means request limits (' + winner.request_plan.requests_per_day + ' a day), slower and less reliable replies (about ' + Math.round(winner.request_plan.reliability * HUNDRED) + '%), and data terms that may allow training on your prompts.';
@@ -7664,14 +7808,22 @@ function renderRecommendation(result) {
 function renderTeaching(result) {
   const box = $('teaching');
   const d = result.demand;
-  box.textContent =
+  const w = result.recommendation.winner;
+  const lines = [
     'Standard Query (spec 2.2): input ' + Math.round(d.sq_in_per_day) + ' tokens/day, output ' +
-    Math.round(d.sq_out_per_day) + ' tokens/day at ' + Math.round(d.sq_per_day) + ' SQ/day.\n' +
-    'Thinking multiplier (spec 2.6): ' + d.thinking_multiplier + ' x output tokens.\n' +
-    'Cloud token demand (spec 2.5): ' + Math.round(d.tokens_cloud_per_day).toLocaleString('en-AU') + ' tokens/day.\n' +
-    'Local token demand adds the efficiency factor of the chosen model size (spec 11.9).\n' +
-    'Generation time per SQ (spec 2.3): input over prefill rate plus output over decode rate.\n' +
-    'All figures are estimates.';
+      Math.round(d.sq_out_per_day) + ' tokens/day at ' + Math.round(d.sq_per_day) + ' SQ/day.',
+    'Thinking multiplier (spec 2.6): ' + d.thinking_multiplier + ' x output tokens.',
+    'Cloud token demand (spec 2.5): ' + Math.round(d.tokens_cloud_per_day).toLocaleString('en-AU') + ' tokens/day.',
+    'Local token demand adds the verbosity factor of the chosen model size (spec 2.5).',
+    'Generation time per SQ (spec 2.3): input over prefill rate plus output over decode rate.',
+    'Task layer (spec 2.8): attempts = 1 / (success rate x reliability); a task is Slow when it spans windows, retries or overruns the session tolerance.'
+  ];
+  if (w) {
+    lines.push('Winner own share (spec 2.8): ' + Math.round((w.own_share || 0) * 100) + '% of the week on its own' +
+      (w.topup_monthly_aud ? ', top-up $' + w.topup_monthly_aud.toFixed(2) + '/month' : '') + '.');
+  }
+  lines.push('All figures are estimates.');
+  box.textContent = lines.join('\n');
 }
 
 function renderVetoNote(result) {
@@ -7876,9 +8028,45 @@ function weekGrid(result, containerId) {
   wrap.appendChild(table);
 }
 
+function renderChecklist(config) {
+  const wrap = $('features-checklist');
+  if (!wrap || !config.features_checklist) return;
+  wrap.innerHTML = '';
+  const rows = ['Web search', 'File upload', 'Code execution', 'Image input', 'Voice', 'Admin console', 'SSO', 'Audit logs', 'No-training commitment'];
+  const table = document.createElement('table');
+  table.className = 'compare';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  hr.appendChild(document.createElement('th'));
+  for (const col of config.features_checklist.columns) {
+    const th = document.createElement('th');
+    th.textContent = col.label;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const feat of rows) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.textContent = feat;
+    tr.appendChild(td);
+    for (const col of config.features_checklist.columns) {
+      const td = document.createElement('td');
+      td.textContent = col.yes.includes(feat) ? 'yes' : 'no';
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
 function renderAll(config, result) {
   weekGrid(result, 'week-grid');
   weekGrid(result, 'week-grid-simple');
+  renderChecklist(config);
+  costPerTaskChartRender('cost-chart', result);
   renderRecommendation(result);
   renderTable(result);
   renderHardwareCard(result);
@@ -8421,6 +8609,36 @@ function tornadoChartRender(canvasId, rows, baseGap) {
       ? 'Bars show where the winner-vs-runner-up gap lands when ' + top.param_id + ' and the rest swing across their bands. The longest bar is the assumption that matters most: ' + top.label.toLowerCase() + ' (' + top.param_id + ').'
       : 'Swing each parameter to see which assumption matters most.';
   }
+}
+
+// Cost per completed task, log toggle optional (spec 7 chart 6).
+function costPerTaskChartRender(canvasId, result) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return;
+  destroyChart(canvasId);
+  const options = result.options.filter(o => o.cost_per_completed_task_aud != null)
+    .sort((a, b) => a.cost_per_completed_task_aud - b.cost_per_completed_task_aud);
+  state.charts[canvasId] = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: options.map(o => o.label),
+      datasets: [{
+        label: 'Cost per completed task (AUD)',
+        data: options.map(o => Number(o.cost_per_completed_task_aud.toFixed(4))),
+        backgroundColor: options.map(o => o.id === (result.recommendation.winner && result.recommendation.winner.id) ? '#0b6b58' : '#9db8b1')
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: 'Cost per completed task, TCO over the week actually delivered (AUD, estimate)' },
+        legend: { display: false }
+      },
+      scales: { x: { type: 'logarithmic', title: { display: true, text: 'AUD per task (log scale)' } } }
+    }
+  });
 }
 
 
@@ -9173,6 +9391,30 @@ function initTabs() {
   for (const b of buttons) b.setAttribute('aria-selected', b.dataset.tab === state.activeTab ? 'true' : 'false');
 }
 
+// ?test mode (spec 14): a compact in-page check of the headline numbers.
+function runInPageTests() {
+  const results = [];
+  const check = (name, fn) => {
+    try { fn(); results.push(['pass', name]); }
+    catch (e) { results.push(['FAIL', name + ': ' + e.message]); }
+  };
+  const assertEq = (a, b, msg) => { if (a !== b) throw new Error(msg + ' (' + a + ' != ' + b + ')'); };
+  const result = compute(CONFIG, { horizon_years: 3 });
+  check('compute returns options', () => assertEq(result.options.length > 10, true, 'too few options'));
+  check('winner exists', () => assertEq(!!result.recommendation.winner, true, 'no winner'));
+  check('grid has seven task cells', () => assertEq(result.options[0].task_cells.length, 7, 'cells'));
+  check('tornado rows present', () => assertEq(Array.isArray(result.tornado) && result.tornado.length > 0, true, 'tornado'));
+  const api = result.options.find(o => o.id === 'api_best');
+  check('API Best daily cost about 35 cents (T6)', () => {
+    const daily = api.tco_at_horizon / (result.inputs_used.horizon_years * 12 * (365 / 12));
+    if (Math.abs(daily - 0.35) / 0.35 > 0.10) throw new Error('daily ' + daily.toFixed(3));
+  });
+  check('every option has seven task cells (N-set)', () => {
+    for (const o of result.options) assertEq(o.task_cells.length, 7, o.id);
+  });
+  return results;
+}
+
 function boot() {
   CONFIG = window.__COMPARE_CONFIG__;
   CONFIG = loadParams();
@@ -9197,6 +9439,18 @@ function boot() {
   document.body.classList.toggle('simple-view', !!state.simpleView);
   if ($('view-simple')) $('view-simple').checked = !!state.simpleView;
   recalculate();
+  if ((location.search || '').includes('test')) {
+    const results = runInPageTests();
+    let card = document.getElementById('in-page-tests');
+    if (!card) {
+      card = document.createElement('section');
+      card.id = 'in-page-tests';
+      card.className = 'card';
+      document.querySelector('main').prepend(card);
+    }
+    card.innerHTML = '<h2>In-page tests</h2><ol>' +
+      results.map(([status, name]) => '<li>' + status + ': ' + name + '</li>').join('') + '</ol>';
+  }
 }
 
 boot();

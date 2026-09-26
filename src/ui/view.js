@@ -126,14 +126,22 @@ function renderRecommendation(result) {
 function renderTeaching(result) {
   const box = $('teaching');
   const d = result.demand;
-  box.textContent =
+  const w = result.recommendation.winner;
+  const lines = [
     'Standard Query (spec 2.2): input ' + Math.round(d.sq_in_per_day) + ' tokens/day, output ' +
-    Math.round(d.sq_out_per_day) + ' tokens/day at ' + Math.round(d.sq_per_day) + ' SQ/day.\n' +
-    'Thinking multiplier (spec 2.6): ' + d.thinking_multiplier + ' x output tokens.\n' +
-    'Cloud token demand (spec 2.5): ' + Math.round(d.tokens_cloud_per_day).toLocaleString('en-AU') + ' tokens/day.\n' +
-    'Local token demand adds the efficiency factor of the chosen model size (spec 11.9).\n' +
-    'Generation time per SQ (spec 2.3): input over prefill rate plus output over decode rate.\n' +
-    'All figures are estimates.';
+      Math.round(d.sq_out_per_day) + ' tokens/day at ' + Math.round(d.sq_per_day) + ' SQ/day.',
+    'Thinking multiplier (spec 2.6): ' + d.thinking_multiplier + ' x output tokens.',
+    'Cloud token demand (spec 2.5): ' + Math.round(d.tokens_cloud_per_day).toLocaleString('en-AU') + ' tokens/day.',
+    'Local token demand adds the verbosity factor of the chosen model size (spec 2.5).',
+    'Generation time per SQ (spec 2.3): input over prefill rate plus output over decode rate.',
+    'Task layer (spec 2.8): attempts = 1 / (success rate x reliability); a task is Slow when it spans windows, retries or overruns the session tolerance.'
+  ];
+  if (w) {
+    lines.push('Winner own share (spec 2.8): ' + Math.round((w.own_share || 0) * 100) + '% of the week on its own' +
+      (w.topup_monthly_aud ? ', top-up $' + w.topup_monthly_aud.toFixed(2) + '/month' : '') + '.');
+  }
+  lines.push('All figures are estimates.');
+  box.textContent = lines.join('\n');
 }
 
 function renderVetoNote(result) {
@@ -338,9 +346,45 @@ function weekGrid(result, containerId) {
   wrap.appendChild(table);
 }
 
+function renderChecklist(config) {
+  const wrap = $('features-checklist');
+  if (!wrap || !config.features_checklist) return;
+  wrap.innerHTML = '';
+  const rows = ['Web search', 'File upload', 'Code execution', 'Image input', 'Voice', 'Admin console', 'SSO', 'Audit logs', 'No-training commitment'];
+  const table = document.createElement('table');
+  table.className = 'compare';
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  hr.appendChild(document.createElement('th'));
+  for (const col of config.features_checklist.columns) {
+    const th = document.createElement('th');
+    th.textContent = col.label;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const feat of rows) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.textContent = feat;
+    tr.appendChild(td);
+    for (const col of config.features_checklist.columns) {
+      const td = document.createElement('td');
+      td.textContent = col.yes.includes(feat) ? 'yes' : 'no';
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
 function renderAll(config, result) {
   weekGrid(result, 'week-grid');
   weekGrid(result, 'week-grid-simple');
+  renderChecklist(config);
+  costPerTaskChartRender('cost-chart', result);
   renderRecommendation(result);
   renderTable(result);
   renderHardwareCard(result);

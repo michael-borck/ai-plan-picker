@@ -179,6 +179,12 @@ ${css}
   </section>
 
   <section class="card detailed-only">
+    <h2>Cost per completed task</h2>
+    <div class="chart-box"><canvas id="cost-chart" role="img" aria-label="Cost per completed task by option, log scale"></canvas></div>
+    <p class="chart-note">TCO including top-up, divided by the tasks actually completed this week.</p>
+  </section>
+
+  <section class="card detailed-only">
     <h2>Sensitivity tornado</h2>
     <div class="chart-box"><canvas id="tornado-chart" role="img" aria-label="How each parameter swings the cost gap between the winner and the runner-up"></canvas></div>
     <p class="chart-note" id="tornado-note"></p>
@@ -220,6 +226,12 @@ ${css}
     <details class="more">
       <summary>Deferred to v2: winner map, combinations routing, business and enterprise tabs.</summary>
     </details>
+  </section>
+
+  <section class="card detailed-only">
+    <h2>Features checklist</h2>
+    <div class="table-wrap" id="features-checklist"></div>
+    <p class="chart-note">Indicative and editable; not scored in v1. Providers differ per product.</p>
   </section>
 
   <section class="card disclaimer">

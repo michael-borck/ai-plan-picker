@@ -292,3 +292,33 @@ function tornadoChartRender(canvasId, rows, baseGap) {
       : 'Swing each parameter to see which assumption matters most.';
   }
 }
+
+// Cost per completed task, log toggle optional (spec 7 chart 6).
+function costPerTaskChartRender(canvasId, result) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return;
+  destroyChart(canvasId);
+  const options = result.options.filter(o => o.cost_per_completed_task_aud != null)
+    .sort((a, b) => a.cost_per_completed_task_aud - b.cost_per_completed_task_aud);
+  state.charts[canvasId] = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: options.map(o => o.label),
+      datasets: [{
+        label: 'Cost per completed task (AUD)',
+        data: options.map(o => Number(o.cost_per_completed_task_aud.toFixed(4))),
+        backgroundColor: options.map(o => o.id === (result.recommendation.winner && result.recommendation.winner.id) ? '#0b6b58' : '#9db8b1')
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: 'Cost per completed task, TCO over the week actually delivered (AUD, estimate)' },
+        legend: { display: false }
+      },
+      scales: { x: { type: 'logarithmic', title: { display: true, text: 'AUD per task (log scale)' } } }
+    }
+  });
+}

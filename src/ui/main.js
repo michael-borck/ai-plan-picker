@@ -274,6 +274,30 @@ function initTabs() {
   for (const b of buttons) b.setAttribute('aria-selected', b.dataset.tab === state.activeTab ? 'true' : 'false');
 }
 
+// ?test mode (spec 14): a compact in-page check of the headline numbers.
+function runInPageTests() {
+  const results = [];
+  const check = (name, fn) => {
+    try { fn(); results.push(['pass', name]); }
+    catch (e) { results.push(['FAIL', name + ': ' + e.message]); }
+  };
+  const assertEq = (a, b, msg) => { if (a !== b) throw new Error(msg + ' (' + a + ' != ' + b + ')'); };
+  const result = compute(CONFIG, { horizon_years: 3 });
+  check('compute returns options', () => assertEq(result.options.length > 10, true, 'too few options'));
+  check('winner exists', () => assertEq(!!result.recommendation.winner, true, 'no winner'));
+  check('grid has seven task cells', () => assertEq(result.options[0].task_cells.length, 7, 'cells'));
+  check('tornado rows present', () => assertEq(Array.isArray(result.tornado) && result.tornado.length > 0, true, 'tornado'));
+  const api = result.options.find(o => o.id === 'api_best');
+  check('API Best daily cost about 35 cents (T6)', () => {
+    const daily = api.tco_at_horizon / (result.inputs_used.horizon_years * 12 * (365 / 12));
+    if (Math.abs(daily - 0.35) / 0.35 > 0.10) throw new Error('daily ' + daily.toFixed(3));
+  });
+  check('every option has seven task cells (N-set)', () => {
+    for (const o of result.options) assertEq(o.task_cells.length, 7, o.id);
+  });
+  return results;
+}
+
 function boot() {
   CONFIG = window.__COMPARE_CONFIG__;
   CONFIG = loadParams();
@@ -298,6 +322,18 @@ function boot() {
   document.body.classList.toggle('simple-view', !!state.simpleView);
   if ($('view-simple')) $('view-simple').checked = !!state.simpleView;
   recalculate();
+  if ((location.search || '').includes('test')) {
+    const results = runInPageTests();
+    let card = document.getElementById('in-page-tests');
+    if (!card) {
+      card = document.createElement('section');
+      card.id = 'in-page-tests';
+      card.className = 'card';
+      document.querySelector('main').prepend(card);
+    }
+    card.innerHTML = '<h2>In-page tests</h2><ol>' +
+      results.map(([status, name]) => '<li>' + status + ': ' + name + '</li>').join('') + '</ol>';
+  }
 }
 
 boot();

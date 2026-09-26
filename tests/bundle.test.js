@@ -50,7 +50,7 @@ function runBundle() {
       body: { classList: { toggle() {}, add() {}, remove() {} } }
     },
     history: { replaceState() {} },
-    location: { hash: '' },
+    location: { hash: '', search: '' },
     localStorage: { setItem() {}, getItem() { return null; } },
     Chart: ChartStub
   };

@@ -2471,6 +2471,61 @@
   75,
   100
  ],
+ "features_checklist": {
+  "columns": [
+   {
+    "id": "local",
+    "label": "Local box",
+    "yes": [
+     "Code execution",
+     "File upload"
+    ]
+   },
+   {
+    "id": "rental",
+    "label": "Rented GPU",
+    "yes": [
+     "Code execution",
+     "File upload"
+    ]
+   },
+   {
+    "id": "subscription",
+    "label": "Subscription",
+    "yes": [
+     "Web search",
+     "File upload",
+     "Code execution",
+     "Image input",
+     "Voice",
+     "Admin console",
+     "No-training commitment"
+    ]
+   },
+   {
+    "id": "api",
+    "label": "API",
+    "yes": [
+     "Web search",
+     "File upload",
+     "Code execution",
+     "Image input",
+     "Voice"
+    ]
+   },
+   {
+    "id": "broker",
+    "label": "Broker free",
+    "yes": [
+     "Code execution"
+    ]
+   }
+  ],
+  "status": "assumed",
+  "source": "spec 8",
+  "source_date": "2026-09-26",
+  "note": "Indicative and editable; not scored in v1. Providers differ per product."
+ },
  "request_plans": [
   {
    "id": "broker_free",

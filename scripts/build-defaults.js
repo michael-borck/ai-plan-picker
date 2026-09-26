@@ -352,6 +352,7 @@ const defaults = {
   presets: assumptions.presets,
   task_types: assumptions.task_types,
   payoff_multiples: assumptions.payoff_multiples,
+  features_checklist: assumptions.features_checklist,
   request_plans: assumptions.request_plans,
   rules: assumptions.rules,
   features: assumptions.features,

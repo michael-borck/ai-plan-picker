@@ -140,9 +140,13 @@ footer { max-width: 1180px; margin: 0 auto 2rem; padding: 0 1rem; }
 }
 
 @media print {
-  .tabs, .globals, .grid-inputs, details.more, .chart-box canvas { display: none; }
-  body { background: #fff; }
-  section.card { border: none; page-break-inside: avoid; }
+  .tabs, .globals, .grid-inputs, .subview, .chart-mode, details.more,
+  .chart-box, .simple-toggle, #settings-panel, #settings-backdrop { display: none !important; }
+  body { background: #fff; font-size: 11px; }
+  section.card { border: none; page-break-inside: avoid; padding: 0.4rem 0; }
+  main { max-width: none; padding: 0; }
+  .table-wrap { overflow: visible; }
+  table.compare { font-size: 8px; }
 }
 
 /* Sub-view toggle: Pick a plan | Hardware explorer (spec 4.2). */
