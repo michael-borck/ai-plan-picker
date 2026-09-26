@@ -30,7 +30,8 @@ function optionRow(o, result) {
     perUserPerMonth(o, result),
     beText,
     o.capacity_sq_per_day == null ? 'unlimited' : Math.round(o.capacity_sq_per_day).toLocaleString('en-AU') + ' SQ/day',
-    Math.round(o.coverage * 100) + '%',
+    Math.round((o.own_share != null ? o.own_share : o.coverage) * 100) + '%',
+    o.topup_monthly_aud ? '$' + o.topup_monthly_aud.toFixed(2) : '-',
     o.per_user_tps_mid == null ? '-' : Math.round(o.per_user_tps_mid) + ' tok/s',
     o.lockout_h_per_day ? o.lockout_h_per_day.toFixed(1) + ' h/day' : '0',
     Math.round(o.wait_hours_per_user_year) + ' h/yr',
@@ -292,7 +293,54 @@ function speedFeel(tps) {
   return 'painfully slow';
 }
 
+function weekGrid(result, containerId) {
+  const wrap = $(containerId);
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const tasks = result.options[0] && result.options[0].task_cells ? result.options[0].task_cells : [];
+  const table = document.createElement('table');
+  table.className = 'compare week-grid';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  const heads = ['Option', 'On its own'].concat(tasks.map(t => t.label + ' (' + Math.round(t.count) + '/wk)'));
+  for (const h of heads) {
+    const th = document.createElement('th');
+    th.innerHTML = h;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const o of result.options) {
+    const tr = document.createElement('tr');
+    if (o.sensitivity.vetoed) tr.className = 'vetoed';
+    else if (result.recommendation.winner && o.id === result.recommendation.winner.id) tr.className = 'winner';
+    const name = document.createElement('td');
+    name.innerHTML = o.label + ' <span class="chart-note">' + Math.round((o.own_share != null ? o.own_share : 0) * 100) + '% on its own</span>';
+    tr.appendChild(name);
+    for (const c of o.task_cells) {
+      const td = document.createElement('td');
+      if (c.count === 0) {
+        td.innerHTML = '<span class="chart-note">not in your week</span>';
+      } else if (c.status === 'no') {
+        td.innerHTML = '<strong>No.</strong> ' + c.reasons[0] + (c.topup_class ? ' Top-up: ' + c.topup_class + '.' : ' Left undone.');
+      } else if (c.status === 'slow') {
+        const mins = c.wall_s > 0 ? Math.round(c.wall_s / 60) + ' min' : '';
+        td.innerHTML = '<strong>Slow.</strong> ' + c.reasons.join(' ') + (mins ? ' About ' + mins + ' per task.' : '') + (c.leftover > 0 && c.topup_class ? ' Top-up: ' + c.topup_class + '.' : '');
+      } else {
+        td.innerHTML = '<strong>Yes.</strong>' + (c.leftover > 0 && c.topup_class ? ' Partly, top-up: ' + c.topup_class + '.' : '');
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
 function renderAll(config, result) {
+  weekGrid(result, 'week-grid');
+  weekGrid(result, 'week-grid-simple');
   renderRecommendation(result);
   renderTable(result);
   renderHardwareCard(result);

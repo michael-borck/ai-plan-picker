@@ -128,6 +128,8 @@ function onInputChanged() {
 
 function recalculate() {
   readInputs(CONFIG);
+  readRules(CONFIG);
+  readOwnWeek(CONFIG);
   readExplorer(CONFIG);
   const saved = inputsFor('single_user', CONFIG);
   const engineIn = engineInputs('single_user', CONFIG);
@@ -182,7 +184,70 @@ function writeSimpleInputs(config) {
   }
 }
 
+const OWN_WEEK_IDS = ['quick_question', 'document_summary', 'writing_drafting', 'code_data_assist', 'analysis_rag', 'agentic_task', 'hard_problem'];
+
+function buildOwnWeek() {
+  const grid = $('own-week-inputs');
+  grid.innerHTML = '';
+  for (const id of OWN_WEEK_IDS) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = 0;
+    input.step = 1;
+    input.id = 'ow-' + id;
+    input.addEventListener('change', onInputChanged);
+    const label = document.createElement('label');
+    const span = document.createElement('span');
+    span.textContent = id.replace(/_/g, ' ') + ' per week';
+    label.appendChild(span);
+    label.appendChild(input);
+    grid.appendChild(label);
+  }
+}
+
+function writeOwnWeek(config) {
+  const saved = inputsFor('single_user', config);
+  const ow = saved.own_week || { enabled: false, counts: {} };
+  $('own-week-enabled').checked = !!ow.enabled;
+  $('own-week-inputs').classList.toggle('visible', !!ow.enabled);
+  for (const id of OWN_WEEK_IDS) {
+    const el = $('ow-' + id);
+    el.value = ow.counts && ow.counts[id] != null ? ow.counts[id] : 0;
+  }
+}
+
+function readOwnWeek(config) {
+  const saved = inputsFor('single_user', config);
+  const ow = saved.own_week || { enabled: false, counts: {} };
+  ow.enabled = $('own-week-enabled').checked;
+  $('own-week-inputs').classList.toggle('visible', ow.enabled);
+  ow.counts = ow.counts || {};
+  for (const id of OWN_WEEK_IDS) {
+    ow.counts[id] = Number($('ow-' + id).value) || 0;
+  }
+  saved.own_week = ow;
+}
+
+function writeRules(config) {
+  const saved = inputsFor('single_user', config);
+  const rules = saved.rules || { top_up: true, exclude_may_train: false };
+  $('rule-topup').checked = !!rules.top_up;
+  $('rule-maytrain').checked = !!rules.exclude_may_train;
+  saved.rules = rules;
+}
+
+function readRules(config) {
+  const saved = inputsFor('single_user', config);
+  saved.rules = {
+    top_up: $('rule-topup').checked,
+    exclude_may_train: $('rule-maytrain').checked
+  };
+}
+
 function initGlobals() {
+  $('rule-topup').addEventListener('change', onInputChanged);
+  $('rule-maytrain').addEventListener('change', onInputChanged);
+  $('own-week-enabled').addEventListener('change', onInputChanged);
   $('view-simple').addEventListener('change', () => {
     state.simpleView = $('view-simple').checked;
     document.body.classList.toggle('simple-view', state.simpleView);
@@ -215,6 +280,7 @@ function boot() {
   buildInputs(CONFIG);
   buildExplorer(CONFIG);
   buildSimpleInputs(CONFIG);
+  buildOwnWeek();
   const fromHash = readHash();
   if (!fromHash) loadLocal();
   initSettings();
@@ -223,6 +289,12 @@ function boot() {
   writeInputs(CONFIG);
   writeExplorer(CONFIG);
   writeSimpleInputs(CONFIG);
+  writeRules(CONFIG);
+  writeOwnWeek(CONFIG);
+  if (!CONFIG.features || !CONFIG.features.org_tabs) {
+    const orgButtons = document.querySelectorAll('.tabs button[data-tab="small_business"], .tabs button[data-tab="enterprise"], .tabs button[data-tab="compare_sizes"]');
+    for (const b of orgButtons) b.style.display = 'none';
+  }
   document.body.classList.toggle('simple-view', !!state.simpleView);
   if ($('view-simple')) $('view-simple').checked = !!state.simpleView;
   recalculate();

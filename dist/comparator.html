@@ -247,6 +247,11 @@ body.settings-open #settings-backdrop { display: block; }
 .preset-row button, #import-file { font-size: 0.85rem; }
 #import-export { width: 100%; font-family: monospace; font-size: 0.75rem; }
 
+.week-grid td { max-width: 260px; white-space: normal !important; text-align: left !important; font-size: 0.75rem; }
+.week-grid td strong { font-size: 0.8rem; }
+#own-week-inputs { margin-top: 0.5rem; display: none; }
+#own-week-inputs.visible { display: grid; }
+
 </style>
 </head>
 <body>
@@ -257,9 +262,9 @@ body.settings-open #settings-backdrop { display: block; }
     </div>
     <nav class="tabs" aria-label="Organisation size">
       <button data-tab="single_user" aria-selected="true">Single user</button>
-      <button data-tab="small_business" disabled title="Phase 4">Small business</button>
-      <button data-tab="enterprise" disabled title="Phase 4">Enterprise</button>
-      <button data-tab="compare_sizes" disabled title="Phase 6">Compare sizes</button>
+      <button data-tab="small_business" disabled title="Deferred to v2">Small business</button>
+      <button data-tab="enterprise" disabled title="Deferred to v2">Enterprise</button>
+      <button data-tab="compare_sizes" disabled title="Deferred to v2">Compare sizes</button>
     </nav>
     <div class="globals">
       <label>Horizon
@@ -309,6 +314,20 @@ body.settings-open #settings-backdrop { display: block; }
   </section>
 
   <section class="card simple-only">
+    <h2>Rules</h2>
+    <label class="checkbox-line"><span>Top up what a plan cannot finish, with pay-as-you-go (recommended)</span><input type="checkbox" id="rule-topup" checked></label>
+    <label class="checkbox-line"><span>Leave out services that may train on my data</span><input type="checkbox" id="rule-maytrain"></label>
+    <label class="checkbox-line"><span>Use my own week: type the counts yourself</span><input type="checkbox" id="own-week-enabled"></label>
+    <div class="grid-inputs" id="own-week-inputs"></div>
+  </section>
+
+  <section class="card simple-only">
+    <h2>Can it do your week?</h2>
+    <div class="table-wrap" id="week-grid-simple"></div>
+    <p class="chart-note">Yes means the plan finishes that task in a sitting. Slow means it works but with waiting: retries, reset windows or pace. No means it cannot, and the work goes to the top-up service named in the cell.</p>
+  </section>
+
+  <section class="card simple-only">
     <h2>The plans, side by side</h2>
     <p id="usage-summary"></p>
     <div class="grid-inputs" id="simple-inputs">
@@ -326,6 +345,12 @@ body.settings-open #settings-backdrop { display: block; }
     <h2>Plan advice</h2>
     <div id="recommendation"></div>
     <div class="teaching" id="teaching"></div>
+  </section>
+
+  <section class="card detailed-only">
+    <h2>Can it do your week?</h2>
+    <div class="table-wrap" id="week-grid"></div>
+    <p class="chart-note">Rows are options, columns are your task types this week. Yes finishes in a sitting; Slow works but with waiting; No cannot, and tops up.</p>
   </section>
 
   <section class="card detailed-only">
@@ -367,7 +392,7 @@ body.settings-open #settings-backdrop { display: block; }
             <th>Option</th><th>Upfront</th><th>Monthly avg</th>
             <th>TCO 1y</th><th>TCO 2y</th><th>TCO 3y</th><th>TCO 4y</th><th>TCO 5y</th>
             <th>Per user per month</th><th>Break-even vs local</th>
-            <th>Capacity</th><th>Coverage</th><th>Speed</th><th>Lockout</th>
+            <th>Capacity</th><th>On its own</th><th>Top-up/mo</th><th>Speed</th><th>Lockout</th>
             <th>Waiting</th><th>Utilisation</th><th>Cost per task</th>
             <th>Biggest task</th><th>Context</th><th>Data location</th><th>Flags</th>
           </tr>
@@ -386,7 +411,7 @@ body.settings-open #settings-backdrop { display: block; }
       <div class="chart-box"><canvas id="capacity-chart" role="img" aria-label="Capacity in Standard Queries per day versus demand"></canvas></div>
     </details>
     <details class="more">
-      <summary>Still to come: sensitivity tornado, winner map, combinations, compare sizes.</summary>
+      <summary>Deferred to v2: winner map, combinations routing, business and enterprise tabs.</summary>
     </details>
   </section>
 
@@ -397,7 +422,7 @@ body.settings-open #settings-backdrop { display: block; }
 </main>
 
 <footer>
-  <p class="chart-note">Every parameter is editable with provenance in the Settings panel (later phase). Data: LocoLabo TCO Data Pack, 31 August 2026, plus assumptions marked in the specification. This page gives estimates, not financial or tax advice.</p>
+  <p class="chart-note">Every parameter is editable with provenance in the Settings panel. Data: LocoLabo TCO Data Pack, 31 August 2026, plus assumptions marked in the specification. This page gives estimates, not financial or tax advice.</p>
 </footer>
 
 <aside id="settings-panel" role="dialog" aria-label="Settings" aria-hidden="true">
@@ -1750,6 +1775,105 @@ body.settings-open #settings-backdrop { display: block; }
    "source": "docs/decisions.md D19",
    "source_date": "2026-09-26",
    "note": "Max wall-clock time for one interactive task (generation plus any mid-task reset waiting) before the user perceives the option as unusable for real work. Past this, the task is not completable in a sitting."
+  },
+  "tasks.success_same": {
+   "label": "Success rate when quality meets the task",
+   "value": 0.95,
+   "low": 0.95,
+   "high": 0.95,
+   "unit": "share",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Reference success rate; retries scale attempts."
+  },
+  "tasks.success_gap1": {
+   "label": "Success rate one quality level below",
+   "value": 0.6,
+   "low": 0.4,
+   "high": 0.8,
+   "unit": "share",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Banded for the tornado."
+  },
+  "tasks.success_gap2": {
+   "label": "Success rate two quality levels below",
+   "value": 0.25,
+   "low": 0.1,
+   "high": 0.4,
+   "unit": "share",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Banded for the tornado."
+  },
+  "tasks.success_gap3": {
+   "label": "Success rate three or more levels below",
+   "value": 0.05,
+   "low": 0.05,
+   "high": 0.05,
+   "unit": "share",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Below p_min, so such tasks are No regardless."
+  },
+  "tasks.p_min": {
+   "label": "Minimum usable success rate",
+   "value": 0.3,
+   "low": 0.2,
+   "high": 0.5,
+   "unit": "share",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Below this the task gate fails. Banded for the tornado."
+  },
+  "tasks.agent_tolerance_min": {
+   "label": "Session tolerance for agent tasks",
+   "value": 120,
+   "low": 60,
+   "high": 240,
+   "unit": "minutes",
+   "status": "assumed",
+   "source": "spec 11.10a",
+   "source_date": "2026-09-26",
+   "note": "Ignored when the preset has unattended hours: nobody watches an overnight run."
+  },
+  "tasks.handoff_min": {
+   "label": "Hand-off time per topped-up task",
+   "value": 2,
+   "low": 1,
+   "high": 5,
+   "unit": "minutes",
+   "status": "assumed",
+   "source": "spec 6.11a",
+   "source_date": "2026-09-26",
+   "note": "Moving a task to the top-up service."
+  },
+  "tasks.local_ttft_s": {
+   "label": "Local time to first token",
+   "value": 0.5,
+   "low": 0.2,
+   "high": 1,
+   "unit": "seconds",
+   "status": "assumed",
+   "source": "spec 2.8 task time formula",
+   "source_date": "2026-09-26",
+   "note": "Added to the prefill time per step."
+  },
+  "subscriptions.cache_weight": {
+   "label": "Cached input weight against subscription allowance",
+   "value": 0.1,
+   "low": 0,
+   "high": 0.5,
+   "unit": "share of full price units",
+   "status": "assumed",
+   "source": "spec 2.8 and 11.7",
+   "source_date": "2026-09-26",
+   "note": "Agent frameworks reuse context; providers meter cached input cheaply. Banded for the tornado."
   }
  },
  "platforms": [
@@ -2163,7 +2287,10 @@ body.settings-open #settings-backdrop { display: block; }
    "source": "spec 11.7",
    "source_date": "2026-09-25",
    "note": "Allowance assumed and does NOT take the model-class multiplier: free tiers meter aggressively whatever model they serve. With the class multiplier applied, Free absorbed a whole Typical user's day, which is not how free tiers behave.",
-   "ignore_class_multiplier": true
+   "ignore_class_multiplier": true,
+   "context_k": 32,
+   "agent_tools": false,
+   "quality_level": "high"
   },
   {
    "id": "base",
@@ -2174,7 +2301,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Plus row)",
    "source_date": "2026-08-31",
-   "note": "Multiplier 1 by definition."
+   "note": "Multiplier 1 by definition.",
+   "agent_tools": true,
+   "context_from_class": true
   },
   {
    "id": "pro",
@@ -2185,7 +2314,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_subscription_pricing.csv (Claude Max row, the pack's 5x tier)",
    "source_date": "2026-08-31",
-   "note": "Price estimated, multiplier from the tier definition."
+   "note": "Price estimated, multiplier from the tier definition.",
+   "agent_tools": true,
+   "context_from_class": true
   },
   {
    "id": "max",
@@ -2196,7 +2327,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "assumed",
    "source": "spec 11.7",
    "source_date": "2026-09-25",
-   "note": "Missing from the pack (spec 15 item 5). Price assumed at 2x Pro."
+   "note": "Missing from the pack (spec 15 item 5). Price assumed at 2x Pro.",
+   "agent_tools": true,
+   "context_from_class": true
   },
   {
    "id": "business",
@@ -2207,7 +2340,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Team row); multiplier assumed",
    "source_date": "2026-08-31",
-   "note": "Price estimated, multiplier assumed."
+   "note": "Price estimated, multiplier assumed.",
+   "agent_tools": true,
+   "context_from_class": true
   },
   {
    "id": "enterprise",
@@ -2220,7 +2355,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Enterprise row); multiplier assumed",
    "source_date": "2026-08-31",
-   "note": "Negotiated. Sensitivity band 77 to 123 AUD."
+   "note": "Negotiated. Sensitivity band 77 to 123 AUD.",
+   "agent_tools": true,
+   "context_from_class": true
   }
  ],
  "api_classes": [
@@ -2233,7 +2370,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_api_pricing.csv",
    "source_date": "2026-08-31",
-   "note": "Mean of frontier rows. Verify against provider pricing pages."
+   "note": "Mean of frontier rows. Verify against provider pricing pages.",
+   "quality_level": "frontier",
+   "may_train": false
   },
   {
    "id": "previous",
@@ -2244,7 +2383,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "assumed",
    "source": "spec 11.8",
    "source_date": "2026-09-25",
-   "note": "One generation back at 0.6 of Best."
+   "note": "One generation back at 0.6 of Best.",
+   "quality_level": "high",
+   "may_train": false
   },
   {
    "id": "cheap",
@@ -2255,7 +2396,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_api_pricing.csv",
    "source_date": "2026-08-31",
-   "note": "Mean of small rows."
+   "note": "Mean of small rows.",
+   "quality_level": "good",
+   "may_train": false
   },
   {
    "id": "premium",
@@ -2266,7 +2409,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_api_pricing.csv",
    "source_date": "2026-08-31",
-   "note": "Verify; premium-tier pricing has moved (spec 15 item 4). Optional row."
+   "note": "Verify; premium-tier pricing has moved (spec 15 item 4). Optional row.",
+   "quality_level": "frontier",
+   "may_train": false
   },
   {
    "id": "budget_offshore",
@@ -2277,7 +2422,9 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "estimated",
    "source": "tco-data-pack cloud_api_pricing.csv",
    "source_date": "2026-08-31",
-   "note": "Data sovereignty considerations differ. Optional row, sensitivity flag."
+   "note": "Data sovereignty considerations differ. Optional row, sensitivity flag.",
+   "quality_level": "high",
+   "may_train": false
   }
  ],
  "quality_targets": [
@@ -2486,32 +2633,32 @@ body.settings-open #settings-backdrop { display: block; }
   {
    "label": "Under 5B",
    "effective_b_max": 5,
-   "factor": 2.16,
+   "factor": 1.6,
    "band": "Simple extraction and drafting (55 to 67)",
    "status": "assumed",
    "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
    "source_date": "2026-08-31",
-   "note": ""
+   "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
   },
   {
    "label": "5 to 20B",
    "effective_b_max": 20,
-   "factor": 1.56,
+   "factor": 1.3,
    "band": "Routine tasks, more re-asks (68 to 71)",
    "status": "assumed",
    "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
    "source_date": "2026-08-31",
-   "note": ""
+   "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
   },
   {
    "label": "20 to 50B",
    "effective_b_max": 50,
-   "factor": 1.21,
+   "factor": 1.1,
    "band": "Close to small-cloud (about 78)",
    "status": "assumed",
    "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
    "source_date": "2026-08-31",
-   "note": ""
+   "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
   },
   {
    "label": "Over 50B",
@@ -2521,17 +2668,17 @@ body.settings-open #settings-backdrop { display: block; }
    "status": "assumed",
    "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
    "source_date": "2026-08-31",
-   "note": ""
+   "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
   }
  ],
  "cloud_efficiency_factors": {
-  "cheap": 1.1,
-  "previous": 1.05,
+  "cheap": 1.05,
+  "previous": 1,
   "best": 1,
   "status": "assumed",
   "source": "spec 11.9",
   "source_date": "2026-09-25",
-  "note": "Combined factor for cloud classes. Best is the baseline."
+  "note": "Verbosity factors per cloud class (spec 2.5). Best is the baseline; small cloud writes a little more."
  },
  "sensitivity_rules": {
   "public": {
@@ -2634,6 +2781,184 @@ body.settings-open #settings-backdrop { display: block; }
    "note": "Scenario preset for the sensitivity story, not a prediction."
   }
  ],
+ "task_types": [
+  {
+   "id": "quick_question",
+   "label": "Quick Q&A",
+   "steps": 1,
+   "input_per_step": 500,
+   "output_per_step": 500,
+   "cacheable_share": 0,
+   "context_need_k": null,
+   "quality_needed": "basic",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11; tokens from workload_profiles.csv",
+   "source_date": "2026-09-26",
+   "note": ""
+  },
+  {
+   "id": "document_summary",
+   "label": "Document summary",
+   "steps": 1,
+   "input_per_step": 6000,
+   "output_per_step": 800,
+   "cacheable_share": 0,
+   "context_need_k": null,
+   "quality_needed": "good",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11; tokens from workload_profiles.csv",
+   "source_date": "2026-09-26",
+   "note": ""
+  },
+  {
+   "id": "writing_drafting",
+   "label": "Writing / drafting",
+   "steps": 1,
+   "input_per_step": 1000,
+   "output_per_step": 1200,
+   "cacheable_share": 0,
+   "context_need_k": null,
+   "quality_needed": "good",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11; tokens from workload_profiles.csv",
+   "source_date": "2026-09-26",
+   "note": ""
+  },
+  {
+   "id": "code_data_assist",
+   "label": "Coding assistance",
+   "steps": 1,
+   "input_per_step": 2000,
+   "output_per_step": 1500,
+   "cacheable_share": 0,
+   "context_need_k": null,
+   "quality_needed": "high",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11; tokens from workload_profiles.csv",
+   "source_date": "2026-09-26",
+   "note": ""
+  },
+  {
+   "id": "analysis_rag",
+   "label": "Analysis / RAG",
+   "steps": 1,
+   "input_per_step": 10000,
+   "output_per_step": 1000,
+   "cacheable_share": 0,
+   "context_need_k": null,
+   "quality_needed": "high",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11; tokens from workload_profiles.csv",
+   "source_date": "2026-09-26",
+   "note": ""
+  },
+  {
+   "id": "agentic_task",
+   "label": "Agentic task",
+   "steps": 20,
+   "input_per_step": 15000,
+   "output_per_step": 800,
+   "cacheable_share": 0.7,
+   "context_need_k": null,
+   "quality_needed": "high",
+   "needs_agent_tools": true,
+   "status": "assumed",
+   "source": "spec 11.11 and 4.4",
+   "source_date": "2026-09-26",
+   "note": "Context need is per step: about 16k, not the 300k weekly total."
+  },
+  {
+   "id": "hard_problem",
+   "label": "Hard problem",
+   "steps": 10,
+   "input_per_step": 20000,
+   "output_per_step": 2000,
+   "cacheable_share": 0.5,
+   "context_need_k": null,
+   "quality_needed": "frontier",
+   "needs_agent_tools": false,
+   "status": "assumed",
+   "source": "spec 11.11",
+   "source_date": "2026-09-26",
+   "note": "Optional task with share 0 in every mix; enable via Use my own week."
+  }
+ ],
+ "payoff_multiples": [
+  1.5,
+  2,
+  3,
+  4,
+  5,
+  6,
+  8,
+  10,
+  12,
+  15,
+  20,
+  25,
+  30,
+  40,
+  50,
+  75,
+  100
+ ],
+ "request_plans": [
+  {
+   "id": "broker_free",
+   "label": "Free models via a broker",
+   "requests_per_day": 50,
+   "requests_per_min": 20,
+   "upfront_usd": 0,
+   "quality_level": "high",
+   "context_k": 128,
+   "agent_tools": true,
+   "reliability": 0.7,
+   "may_train": true,
+   "gen_tps": 40,
+   "ttft_s": 4,
+   "status": "assumed",
+   "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
+   "source_date": "2026-09-26",
+   "note": "Reliability and quality assumed. Some hosts may train on prompts.",
+   "prefill_tps": 800
+  },
+  {
+   "id": "broker_credit",
+   "label": "Broker free, after USD 10 credit",
+   "requests_per_day": 1000,
+   "requests_per_min": 20,
+   "upfront_usd": 10,
+   "quality_level": "high",
+   "context_k": 128,
+   "agent_tools": true,
+   "reliability": 0.7,
+   "may_train": true,
+   "gen_tps": 40,
+   "ttft_s": 4,
+   "status": "assumed",
+   "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
+   "source_date": "2026-09-26",
+   "note": "One-off credit purchase as the upfront cost. Reliability and quality assumed.",
+   "prefill_tps": 800
+  }
+ ],
+ "rules": {
+  "top_up": true,
+  "exclude_may_train": false,
+  "status": "assumed",
+  "source": "spec 6.11a, 2.8 and CR-001 item 1",
+  "source_date": "2026-09-26",
+  "note": "Toggles in the simple view; top-up makes every option price the same completed week."
+ },
+ "features": {
+  "org_tabs": false,
+  "note": "Small business, Enterprise and Compare sizes deferred to v2 (spec 1.3)."
+ },
  "defaults_inputs": {
   "single_user": {
    "users": 1,
@@ -4162,6 +4487,7 @@ const WEEKS_PER_YEAR = 52;
 const MONTHS_PER_YEAR = 12;
 const DAYS_PER_YEAR = 365;
 const DAYS_PER_MONTH = DAYS_PER_YEAR / MONTHS_PER_YEAR;
+const WEEKS_PER_MONTH = WEEKS_PER_YEAR / MONTHS_PER_YEAR;
 
 const HORIZON_YEARS_MAX = 5;
 const HORIZON_MONTHS_MAX = HORIZON_YEARS_MAX * MONTHS_PER_YEAR;
@@ -4263,6 +4589,8 @@ function provenanceText(config, id) {
 // (see units.js GB_PER_BILLION_PARAM_BYTES). All coefficients come from config.
 
 
+
+
 function modelMemory(config, { total_params_b, bits_per_weight, context_k, streams }) {
   const weightsGB = total_params_b * bits_per_weight / BITS_PER_BYTE;
   const kvPerStreamGB = context_k *
@@ -4282,6 +4610,7 @@ function modelMemory(config, { total_params_b, bits_per_weight, context_k, strea
 
 // ---- engine/hardware.js ----
 // hardware.js: platforms, GPU bands priced per GB, RAM steps (spec 6.2, 11.1, 11.2).
+
 
 
 function platformById(config, id) {
@@ -4359,6 +4688,8 @@ function ramStepsFor(config, platform) {
 // Bytes-per-token is in GB and bandwidth in GB/s, so the GB scale cancels and
 // t_token is in seconds with no conversion constant. Low/mid/high come from
 // the efficiency band around each size point's eta mid.
+
+
 
 
 function clamp01(x) {
@@ -4512,6 +4843,11 @@ function maxStreams(config, { vram_usable_gb, weights_gb, runtime_gb, kv_gb_per_
 // (GPU + RAM - OS reserve), CPU-only, Unified (pool x addressable), No fit.
 
 
+
+
+
+
+
 // Resolve placement for one hardware combination against the memory need.
 function resolvePlacement(config, { platform, size, n_gpu, ram_gb, memory }) {
   const usableShare = pval(config, 'memory.gpu_usable_share');
@@ -4656,6 +4992,7 @@ function cheapestFit(config, opts) {
 //
 // Tokens and Standard Queries are kept distinct everywhere: sq_* variables are
 // queries, tokens_* variables are tokens (CLAUDE.md units rule).
+
 
 
 function personaById(config, id) {
@@ -4803,6 +5140,8 @@ function busySecondsPerSq(sq_in, sq_out, { prefill_tps, decode_tps, thinking_mul
 // periods), demand charge, admin, utilisation.
 
 
+
+
 function tariffById(config, id) {
   const t = config.tables.tariffs.find(x => x.id === id);
   if (!t) throw new Error('Unknown tariff: ' + id);
@@ -4884,6 +5223,9 @@ function utilisation(busy_h, powered_h) {
 // monthly    = fee x FX + misc x FX
 
 
+
+
+
 function rentalClassById(config, id) {
   const c = config.rental_classes.find(x => x.id === id);
   if (!c) throw new Error('Unknown rental class: ' + id);
@@ -4962,6 +5304,8 @@ function monthlyAudPerMonth(config, cls, mode, fx) {
 // speed, overflow and the 24-hour lockout simulation (spec 6.10, 11.7).
 // The allowance is the least certain input in the model and is flagged
 // wherever it is used.
+
+
 
 
 function tierById(config, id) {
@@ -5109,6 +5453,9 @@ function simulateSubscriptionDay(config, { allowance, span_h, tokens_per_day, pe
 //          + out x p_out] / 1e6 x (1 + markup)
 
 
+
+
+
 const CLASS_CONTEXT_PARAMS = {
   best: 'fit.context_best_k',
   previous: 'fit.context_previous_k',
@@ -5131,16 +5478,19 @@ function apiClassInfo(config, class_id) {
   if (class_id === 'previous') {
     const ratio = pval(config, 'api.previous_ratio');
     const best = table.best;
+    const metaPrev = meta;
     return {
       id: class_id,
-      label: meta.label,
+      label: metaPrev.label,
       price_aud_per_1m_input: Math.round(best.price_aud_per_1m_input * ratio * 100) / 100,
       price_aud_per_1m_output: Math.round(best.price_aud_per_1m_output * ratio * 100) / 100,
       context_k: pval(config, CLASS_CONTEXT_PARAMS.previous),
-      status: meta.status,
-      source: meta.source,
-      source_date: meta.source_date,
-      note: meta.note
+      quality_level: metaPrev.quality_level,
+      may_train: !!metaPrev.may_train,
+      status: metaPrev.status,
+      source: metaPrev.source,
+      source_date: metaPrev.source_date,
+      note: metaPrev.note
     };
   }
 
@@ -5152,6 +5502,8 @@ function apiClassInfo(config, class_id) {
     price_aud_per_1m_input: row.price_aud_per_1m_input,
     price_aud_per_1m_output: row.price_aud_per_1m_output,
     context_k: pval(config, contextParam),
+    quality_level: meta.quality_level,
+    may_train: !!meta.may_train,
     status: meta.status,
     source: meta.source,
     source_date: meta.source_date,
@@ -5174,6 +5526,23 @@ function apiDailyCostAud(config, { class_id, tokens_in, tokens_out, cached_share
   return (uncachedIn + cachedIn + out) / TOKENS_PER_MILLION * (ONE + markup);
 }
 
+// Cheapest qualifying API class for a leftover task (spec 6.11a): all gates
+// pass on that class, success rate at least the reference (0.95), the class
+// is not vetoed, and the may-train rule is respected.
+function cheapestQualifyingApiForTask(config, task, apiAttrs, inputs) {
+  const floor = pval(config, 'tasks.success_same');
+  let best = null;
+  for (const opt of apiAttrs) {
+    if (opt.vetoed) continue;
+    if (opt.may_train && inputs.rules && inputs.rules.exclude_may_train) continue;
+    const cell = evaluateTask(config, task, opt, inputs);
+    if (cell.status === 'no') continue;
+    if (cell.p < floor - SUM_EPSILON) continue;
+    if (!best || cell.api_aud < best.cell.api_aud) best = { opt, cell };
+  }
+  return best;
+}
+
 
 // ---- engine/timeSeries.js ----
 // timeSeries.js: monthly cumulative TCO, price changes, discount rate, GST,
@@ -5182,6 +5551,8 @@ function apiDailyCostAud(config, { class_id, tokens_in, tokens_out, cached_share
 // Series run months 0 to 60 for every option. Cumulative TCO is total cost of
 // access for rented, subscription and API options; the same term is used for
 // local so the lines are comparable.
+
+
 
 
 function pow12(base, month) {
@@ -5214,8 +5585,9 @@ function cumulativeTco(config, desc, opts = {}) {
   let cumPv = ZERO;
   if (desc.kind === 'local') {
     cum += (desc.capex_aud + desc.setup_aud) * gst;
-    cumPv += cum;
   }
+  if (desc.upfront_aud) cum += desc.upfront_aud * gst;
+  cumPv += cum;
   nominal[ZERO] = cum;
   pv[ZERO] = cumPv;
 
@@ -5247,6 +5619,14 @@ function cumulativeTco(config, desc, opts = {}) {
     // Flat additions such as costed waiting time (spec 2.7) carry no growth
     // or price escalation of their own.
     if (desc.extra_monthly_aud) flow += desc.extra_monthly_aud;
+
+    // Pay-as-you-go top-up (spec 6.11a): metered monthly, growing with
+    // demand and falling with API prices, like the API options.
+    if (desc.topup_monthly_aud) {
+      flow += desc.topup_monthly_aud
+        * pow12(ONE + (desc.topup_growth != null ? desc.topup_growth : ZERO), m)
+        * pow12(ONE + (desc.topup_price_change != null ? desc.topup_price_change : ZERO), m);
+    }
 
     flow *= gst;
     cum += flow;
@@ -5294,11 +5674,45 @@ function tasksServed(sq_per_day, growth, months, efficiency) {
   return sq / efficiency;
 }
 
+// Add metered top-up (spec 6.11a) to an existing cumulative series in place:
+// a monthly cost that grows with demand and falls with API prices, GST
+// applied. Used when the top-up is computed after the option's own series.
+function addMeteredTopup(series, { monthly_aud, growth, price_change, discount_rate, gst_multiplier }) {
+  const gst = gst_multiplier != null ? gst_multiplier : ONE;
+  const disc = discount_rate != null ? discount_rate : ZERO;
+  let running = ZERO;
+  let runningPv = ZERO;
+  for (let m = ONE; m <= series.months; m++) {
+    const inc = monthly_aud * pow12(ONE + growth, m) * pow12(ONE + price_change, m) * gst;
+    running += inc;
+    runningPv += inc / Math.pow(ONE + disc, m / MONTHS_PER_YEAR);
+    series.nominal[m] += running;
+    series.pv[m] += runningPv;
+  }
+}
+
+// Add a flat monthly cost to an existing cumulative series in place (used
+// for costed waiting time after top-up hours are known).
+function addFlatMonthly(series, monthly_aud, { discount_rate, gst_multiplier }) {
+  const gst = gst_multiplier != null ? gst_multiplier : ONE;
+  const disc = discount_rate != null ? discount_rate : ZERO;
+  let running = ZERO;
+  let runningPv = ZERO;
+  for (let m = ONE; m <= series.months; m++) {
+    const inc = monthly_aud * gst;
+    running += inc;
+    runningPv += inc / Math.pow(ONE + disc, m / MONTHS_PER_YEAR);
+    series.nominal[m] += running;
+    series.pv[m] += runningPv;
+  }
+}
+
 
 // ---- engine/fitChecks.js ----
 // fitChecks.js: context window check (spec 8).
 // For each task type the required context (input plus expected output plus
 // thinking) is compared against each option's context window.
+
 
 
 // Required context in tokens for the busiest task in a mix, with thinking.
@@ -5324,75 +5738,268 @@ function contextCheck(window_k, required_tokens) {
 }
 
 
-// ---- engine/taskTime.js ----
-// taskTime.js: task completion feasibility (spec 2.1 "cost per successful
-// task, at the quality you need, with the availability you need").
+// ---- engine/taskLayer.js ----
+// taskLayer.js: the task layer (spec 2.8; CR-001 items 2 and 3).
 //
-// TCO counts tokens served; this module asks the user's actual question:
-// can a meaningful task from my mix be FINISHED in one working session, and
-// how many such tasks fit in a day? A cheap option that cannot finish the
-// task is not a plan, it is a waiting room.
+// Work arrives as whole tasks. Every task type is checked against every
+// option through six gates, in order: context, agent tools, quality
+// (success rate), sensitivity veto, single-task fit (window or request
+// spans), and session time. A task that passes is Yes; limited tasks are
+// Slow, never excluded; only gate failures are No.
 //
-// For subscriptions a task bigger than one window's allowance forces a
-// mid-task pause: you wait for the reset window, then continue. Pause time
-// is (windows needed - 1) x window length.
+// Convention statement (CR section 4): decision D2 is kept. Demand accrues
+// on every calendar day, so a week is seven days everywhere here: weekly
+// task counts are daily counts times seven, and weekly request capacity is
+// requests per day times seven.
 
 
-// The biggest task in the current mix is the representative "meaningful task".
-function representativeTask(tasks) {
-  let big = null;
-  for (const t of tasks) {
-    const size = t.input_tokens + t.output_tokens;
-    if (!big || size > big.input_tokens + big.output_tokens) big = t;
-  }
-  return big;
+
+
+
+const QUALITY_ORDER = ['basic', 'good', 'high', 'frontier'];
+
+function qualityRank(level) {
+  return QUALITY_ORDER.indexOf(level);
 }
 
-// Completion profile for one task on one option.
-// speed: { gen_tps (decode or burst), prefill_tps } for the option;
-// ttft_s: time to first token (cloud) or derived prefill (local);
-// allowance_per_window / window_h: subscription only (null elsewhere).
-function taskCompletion(config, { task_in, task_out, thinking_mult, efficiency, gen_tps, ttft_s, allowance_per_window, window_h }) {
-  const tokens = task_in + task_out * thinking_mult * efficiency;
-  const genS = task_out * thinking_mult / gen_tps + ttft_s;
+// Per-task-type counts per week (spec 2.8). Defaults come from the demand
+// model (persona, usage preset, usage mode); "Use my own week" replaces
+// them with typed counts per week.
+function taskTypesForInputs(config, inputs) {
+  const own = inputs && inputs.own_week && inputs.own_week.enabled ? inputs.own_week.counts : null;
+  return config.task_types.map(t => {
+    const perWeek = own ? (Number(own[t.id]) || ZERO) : dailyCount(config, inputs, t) * DAYS_PER_WEEK;
+    return { ...t, count_per_week: perWeek };
+  });
+}
 
-  let windowsNeeded = ONE;
-  let pauseS = ZERO;
-  if (allowance_per_window != null && allowance_per_window > ZERO) {
-    windowsNeeded = Math.max(ONE, Math.ceil(tokens / allowance_per_window));
-    const windowH = window_h != null ? window_h : pval(config, 'subscriptions.window_h');
-    pauseS = (windowsNeeded - ONE) * windowH * SECONDS_PER_HOUR;
+function dailyCount(config, inputs, taskType) {
+  if (taskType.id === 'hard_problem') return ZERO;
+  const preset = usagePresetById(config, inputs.usage_preset);
+  const persona = personaById(config, inputs.persona);
+  const queries = persona.queries_per_day * preset.query_multiplier;
+
+  if (taskType.id === 'agentic_task') {
+    const agents = preset.agent_tasks > ZERO ? preset.agent_tasks : ZERO;
+    const interactive = inputs.usage_mode === 'agentic' ? queries : ZERO;
+    return interactive + agents;
+  }
+  if (inputs.usage_mode === 'agentic') return ZERO; // all interactive work is agentic in this mode
+
+  if (inputs.usage_mode === 'documents') {
+    const mode = config.usage_modes.find(m => m.id === 'documents');
+    return (mode.mix[taskType.id] || ZERO) * queries;
+  }
+  // Chat: persona shares over the pack's five task types.
+  const pack = config.tables.workload.tasks.find(t => t.id === taskType.id);
+  if (!pack) return ZERO;
+  const shareKey = { power: 'share_power', typical: 'share_typical', light: 'share_light' }[inputs.persona];
+  return (pack[shareKey] || ZERO) * queries;
+}
+
+function successRate(config, gap) {
+  if (gap <= ZERO) return pval(config, 'tasks.success_same');
+  if (gap === ONE) return pval(config, 'tasks.success_gap1');
+  if (gap === 2) return pval(config, 'tasks.success_gap2');
+  return pval(config, 'tasks.success_gap3');
+}
+
+// Context one step needs, in k tokens: input plus expected output with
+// thinking, rounded up; a per-task override wins (spec 2.8).
+function contextNeedK(config, task, thinking_mult) {
+  if (task.context_need_k != null) return task.context_need_k;
+  const tokens = task.input_per_step + task.output_per_step * thinking_mult;
+  return Math.ceil(tokens / KILO);
+}
+
+// Gates 1 to 6 for one task on one option (spec 2.8). opt carries the
+// option's task attributes: quality_level, context_k, agent_tools,
+// reliability, may_train, vetoed, kind, speed, and the metering fields.
+function evaluateTask(config, task, opt, inputs) {
+  const thinking = pval(config, 'thinking.' + inputs.thinking);
+  const out = task.output_per_step * thinking * opt.verbosity;
+  const newIn = task.input_per_step * (ONE - task.cacheable_share);
+  const cached = task.input_per_step * task.cacheable_share;
+
+  // Gate 1: context.
+  const ctxNeed = contextNeedK(config, task, thinking);
+  if (ctxNeed > opt.context_k) {
+    return no(task, 'Needs ' + ctxNeed + 'k context, has ' + opt.context_k + 'k', ctxNeed);
+  }
+  // Gate 2: agent tools.
+  if (task.needs_agent_tools && !opt.agent_tools) {
+    return no(task, 'No agent or coding tools', ctxNeed);
+  }
+  // Gate 3: quality via success rate.
+  const gap = qualityRank(task.quality_needed) - qualityRank(opt.quality_level);
+  const p = successRate(config, gap);
+  if (p < pval(config, 'tasks.p_min')) {
+    return no(task, 'Model too weak for this task', ctxNeed);
+  }
+  // Gate 4: sensitivity veto.
+  if (opt.vetoed) {
+    return no(task, opt.veto_reason || 'Blocked by your data rule', ctxNeed);
   }
 
-  const toleranceS = pval(config, 'tasks.session_tolerance_min') * SECONDS_PER_MINUTE;
-  const wallS = genS + pauseS;
+  // Per-task quantities (spec 2.8).
+  const attempts = ONE / (p * (opt.reliability != null ? opt.reliability : ONE));
+  const requests = attempts * task.steps;
+  const cacheWeight = pval(config, 'subscriptions.cache_weight');
+  const units = requests * (newIn + cached * cacheWeight + out);
+  let apiAud = ZERO;
+  if (opt.price_in_aud != null) {
+    const discount = ONE - pval(config, 'api.cache_discount');
+    apiAud = requests * ((newIn + cached * discount) * opt.price_in_aud + out * opt.price_out_aud) / TOKENS_PER_MILLION;
+  }
+  const tStep = opt.ttft_s + newIn / opt.prefill_tps + out / opt.gen_tps;
+  let wall = requests * tStep;
+  const slow = [];
+  let spans = ONE;
+
+  // Gate 5: single-task fit for metered plans.
+  if (opt.kind === 'window' && opt.allowance_per_window > ZERO) {
+    spans = Math.ceil(units / opt.allowance_per_window);
+    if (opt.weekly_allowance != null && units > opt.weekly_allowance) {
+      return no(task, 'One task is bigger than the weekly allowance', ctxNeed);
+    }
+    if (spans > ONE) {
+      wall += (spans - ONE) * opt.window_h * SECONDS_PER_HOUR;
+      slow.push('Spans ' + spans + ' reset windows');
+    }
+  }
+  if (opt.kind === 'requests' && opt.requests_per_day > ZERO) {
+    spans = Math.ceil(requests / opt.requests_per_day);
+    if (spans > ONE) {
+      wall += (spans - ONE) * HOURS_PER_DAY * SECONDS_PER_HOUR;
+      slow.push('Spans ' + spans + ' days of request limits');
+    }
+    const floorS = requests / opt.requests_per_min * SECONDS_PER_MINUTE;
+    if (floorS > wall) wall = floorS;
+  }
+
+  // Gate 6: session time makes the task Slow, never No (v0.4; supersedes
+  // decision D19). Agent tasks use the agent tolerance unless the preset has
+  // unattended hours, in which case nobody is watching.
+  const preset = usagePresetById(config, inputs.usage_preset || 'workday');
+  const agentWatched = task.needs_agent_tools && !(preset.unattended_h > ZERO);
+  const toleranceMin = agentWatched
+    ? pval(config, 'tasks.agent_tolerance_min')
+    : pval(config, 'tasks.session_tolerance_min');
+  if (wall > toleranceMin * SECONDS_PER_MINUTE) {
+    slow.push('About ' + Math.round(wall / SECONDS_PER_MINUTE) + ' min per task');
+  }
+  // Retries are a limitation, not a failure (spec 2.8: Slow when p < 0.95).
+  if (p < pval(config, 'tasks.success_same')) {
+    slow.push('Often needs retries (' + Math.round(p * 100) + '% success)');
+  }
 
   return {
-    tokens,
-    gen_s: genS,
-    windows_needed: windowsNeeded,
-    pause_s: pauseS,
-    wall_s: wallS,
-    // Feasible when the task finishes within the session tolerance: no
-    // multi-hour mid-task resets, no days-long token drip.
-    fits_session: wallS <= toleranceS,
-    tolerance_s: toleranceS
+    task_id: task.id,
+    status: slow.length ? 'slow' : 'yes',
+    reasons: slow,
+    p,
+    attempts,
+    requests,
+    units,
+    api_aud: apiAud,
+    wall_s: wall,
+    gen_s: requests * tStep,
+    spans,
+    ctx_need_k: ctxNeed,
+    size: task.steps * (task.input_per_step + task.output_per_step)
   };
 }
 
-// Plain-language verdict for the plan cards and the table.
-function taskVerdict(check) {
-  if (!check) return null;
-  if (check.pause_s > ZERO) {
-    return 'Stalls mid-task: needs ' + check.windows_needed + ' windows, about ' +
-      (check.pause_s / SECONDS_PER_HOUR).toFixed(1) + ' h of reset waiting.';
+function no(task, reason, ctxNeed) {
+  return {
+    task_id: task.id,
+    status: 'no',
+    reasons: [reason],
+    p: ZERO,
+    attempts: ZERO,
+    requests: ZERO,
+    units: ZERO,
+    api_aud: ZERO,
+    wall_s: ZERO,
+    gen_s: ZERO,
+    spans: ZERO,
+    ctx_need_k: ctxNeed,
+    size: task.steps * (task.input_per_step + task.output_per_step)
+  };
+}
+
+// Weekly limits for an option (spec 2.8): hours for local and rental,
+// allowance tokens for window plans (usable windows times allowance, capped
+// by the weekly cap), requests for request-limited plans, none for API.
+function weeklyLimitsFor(config, opt, inputs) {
+  const preset = usagePresetById(config, inputs.usage_preset);
+  const days = DAYS_PER_WEEK; // D2: demand every day
+  if (opt.kind === 'local' || opt.kind === 'rental') {
+    return { hours_per_week: (preset.interactive_h + preset.unattended_h) * days };
   }
-  if (!check.fits_session) {
-    return 'Too slow: about ' + Math.round(check.wall_s / SECONDS_PER_MINUTE) +
-      ' min to finish one task against a ' + Math.round(check.tolerance_s / SECONDS_PER_MINUTE) + ' min tolerance.';
+  if (opt.kind === 'window') {
+    const windowH = pval(config, 'subscriptions.window_h');
+    const windowsPerDay = Math.ceil(preset.interactive_h / windowH)
+      + (preset.unattended_h > ZERO ? Math.ceil(preset.unattended_h / windowH) : ZERO);
+    const weeklyWindows = Math.min(windowsPerDay * days, pval(config, 'subscriptions.weekly_cap_windows'));
+    return { allowance_weekly: weeklyWindows * opt.allowance_per_window };
   }
-  const mins = check.wall_s / SECONDS_PER_MINUTE;
-  return 'Finishes a task in about ' + (mins >= 1 ? Math.round(mins) + ' min' : Math.round(check.wall_s) + ' s') + '.';
+  if (opt.kind === 'requests') {
+    return { requests_weekly: opt.requests_per_day * days };
+  }
+  return {};
+}
+
+// Weekly fill (spec 2.8, CR-001 item 3). Feasible tasks are filled smallest
+// first by units per task until a weekly limit is reached; the last task
+// type may be partly done.
+function fillWeekly(config, tasks, cells, limits) {
+  let remainingH = limits.hours_per_week != null ? limits.hours_per_week : null;
+  let remainingU = limits.allowance_weekly != null ? limits.allowance_weekly : null;
+  let remainingR = limits.requests_weekly != null ? limits.requests_weekly : null;
+
+  const order = tasks
+    .map((t, i) => ({ i, cell: cells[i], task: t }))
+    .filter(x => x.cell.status !== 'no' && x.task.count_per_week > ZERO)
+    .sort((a, b) => a.cell.units / a.task.steps - b.cell.units / b.task.steps);
+
+  let remainingH2 = remainingH;
+  let remainingU2 = remainingU;
+  let remainingR2 = remainingR;
+  let doneSize = ZERO;
+  let allSize = ZERO;
+
+  tasks.forEach((t, i) => {
+    // Size comes from the evaluated cell (evaluateTask), not the raw config.
+    allSize += t.count_per_week * cells[i].size;
+  });
+
+  const done = new Array(tasks.length).fill(ZERO);
+  for (const x of order) {
+    const { task, cell, i } = x;
+    let cap = task.count_per_week;
+    if (remainingH2 != null) {
+      const hPerTask = cell.gen_s / SECONDS_PER_HOUR;
+      cap = hPerTask > ZERO ? Math.min(cap, remainingH2 / hPerTask) : Math.min(cap, remainingH2 >= ZERO ? task.count_per_week : ZERO);
+    }
+    if (remainingU2 != null) {
+      cap = cell.units > ZERO ? Math.min(cap, remainingU2 / cell.units) : Math.min(cap, remainingU2 >= ZERO ? task.count_per_week : ZERO);
+    }
+    if (remainingR2 != null) {
+      cap = cell.requests > ZERO ? Math.min(cap, remainingR2 / cell.requests) : Math.min(cap, remainingR2 >= ZERO ? task.count_per_week : ZERO);
+    }
+    done[i] = Math.max(ZERO, Math.min(task.count_per_week, cap));
+    if (remainingH2 != null) remainingH2 -= done[i] * cell.gen_s / SECONDS_PER_HOUR;
+    if (remainingU2 != null) remainingU2 -= done[i] * cell.units;
+    if (remainingR2 != null) remainingR2 -= done[i] * cell.requests;
+    doneSize += done[i] * cell.size;
+  }
+
+  const ownShare = allSize > ZERO ? doneSize / allSize : ONE;
+  return {
+    done,
+    own_share: Math.min(ONE, ownShare > ONE - SUM_EPSILON ? ONE : ownShare)
+  };
 }
 
 
@@ -5401,6 +6008,9 @@ function taskVerdict(check) {
 // Cumulative demand vs delivered tokens in 5-minute steps: subscription
 // burst, plateau and reset (lockout visible), local steady and continuing
 // overnight, API effectively tracks demand.
+
+
+
 
 
 const STEP_SECONDS = SIM_STEP_MINUTES * SECONDS_PER_MINUTE;
@@ -5525,6 +6135,11 @@ function profile24(config, { tokens_interactive, tokens_agent, span_h, unattende
 // ---- engine/select.js ----
 // select.js: selection objectives, Budget-only ladders, quality-target mode,
 // no-fit suggestions and the budget frontier (spec 6.4a, 4.2, chart 9).
+
+
+
+
+
 
 
 // Model candidates for a quality target (spec 2.4): ladder rungs inside the
@@ -5680,6 +6295,7 @@ function budgetFrontier(config, { bits, context_k, min_speed_tps, must_be_new, s
 // recommendation text (spec 6.15).
 
 
+
 const SENSITIVITY_TAGS = {
   rental_hourly: 'hourly marketplace rental',
   rental_monthly: 'monthly rental',
@@ -5768,6 +6384,7 @@ function swingOf(row) {
 // Recommendation text follows the template in spec 6.15. Australian English,
 // no em dashes (CLAUDE.md UI text conventions).
 
+
 function formatRecommendation(config, inputs, { winner, runner_up, robustness }) {
   if (!winner) {
     return 'No option passes the filters for this scenario. Try a lower quality target, raise the budget, or relax the sensitivity rule.';
@@ -5829,6 +6446,8 @@ function caveatFor(winner) {
 // ---- engine/config-io.js ----
 // config-io.js: whole-configuration export and import, preset application
 // and full reset (spec 10). Pure functions over the config object.
+
+
 
 
 const CONFIG_KIND = 'ai-delivery-comparator-config';
@@ -5947,6 +6566,23 @@ function applyEdits(config, edits) {
 // into the same function.
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Parameters included in the robustness sweep (spec 6.15). Curated for the
 // single-user path: every banded parameter this path actually consumes.
 const SENSITIVITY_PARAMS = [
@@ -5957,7 +6593,11 @@ const SENSITIVITY_PARAMS = [
   'demand.growth_per_year',
   'api.previous_ratio',
   'price_change.api_per_year',
-  'speed.eta_cpu'
+  'speed.eta_cpu',
+  'tasks.success_gap1',
+  'tasks.success_gap2',
+  'tasks.p_min',
+  'subscriptions.cache_weight'
 ];
 
 const SUB_TIERS_CONSUMER = ['free', 'base', 'pro', 'max'];
@@ -6123,7 +6763,6 @@ function compute(config, inputs) {
 
     const ttftLocalS = dm.interactive.sq_in / cand.speed.prefill_tps.mid;
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftLocalS, cand.speed.decode_tps.mid);
-    const waitCost = waitCostMonthly(waitH);
 
     const series = cumulativeTco(config, {
       kind: 'local',
@@ -6136,8 +6775,7 @@ function compute(config, inputs) {
       demand_charge_aud_month: ZERO,
       life_months: lifeMonthsFor(config, cand.platform),
       residual_on: false,
-      growth,
-      extra_monthly_aud: waitCost
+      growth
     }, { months, discount_rate: discount, gst_multiplier: ONE });
 
     const capacitySqPerDay = busySInteractive + busySAgent > ZERO
@@ -6178,7 +6816,6 @@ function compute(config, inputs) {
       memory: cand.memory,
       speed: cand.speed,
       watts: cand.watts,
-      wait_cost_aud_month: waitCost,
       model,
       efficiency_factor: efficiency,
       candidate: cand,
@@ -6221,8 +6858,7 @@ function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
 
     const series = cumulativeTco(config, {
-      kind: 'hours', daily_aud: daily, price_change: pval(config, 'price_change.rental_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'hours', daily_aud: daily, price_change: pval(config, 'price_change.rental_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -6247,6 +6883,7 @@ function compute(config, inputs) {
       context_check: ctx,
       speed,
       rental_class: cls,
+      model: canonicalModel,
       rented_h: rentedH,
       efficiency_factor: canonicalEfficiency,
       passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
@@ -6274,8 +6911,7 @@ function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
 
     const series = cumulativeTco(config, {
-      kind: 'flat', monthly_aud: monthly, price_change: pval(config, 'price_change.rental_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'flat', monthly_aud: monthly, price_change: pval(config, 'price_change.rental_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -6300,6 +6936,8 @@ function compute(config, inputs) {
       context_check: ctx,
       speed,
       rental_class: cls,
+      model: canonicalModel,
+      efficiency_factor: canonicalEfficiency,
       passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
     }));
   }
@@ -6330,8 +6968,7 @@ function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, target.cloud_class));
 
     const series = cumulativeTco(config, {
-      kind: 'flat', monthly_aud: tier.seat_aud_month, price_change: pval(config, 'price_change.subscription_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'flat', monthly_aud: tier.seat_aud_month, price_change: pval(config, 'price_change.subscription_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -6356,6 +6993,7 @@ function compute(config, inputs) {
       cost_per_task_aud: tcoHorizon / tasks,
       context_check: ctx,
       cloud_class: target.cloud_class,
+      cloud_class_quality: config.api_classes.find(c => c.id === target.cloud_class).quality_level,
       efficiency_factor: cloudEfficiencyFactor(config, target.cloud_class),
       flags: ['allowance_assumed'],
       passes_filters: coverage >= ONE && ctx.pass,
@@ -6387,8 +7025,7 @@ function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, classId === 'best' || classId === 'premium' ? 'best' : classId === 'previous' ? 'previous' : 'cheap'));
 
     const series = cumulativeTco(config, {
-      kind: 'metered', daily_aud: daily, growth, price_change: pval(config, 'price_change.api_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'metered', daily_aud: daily, growth, price_change: pval(config, 'price_change.api_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -6417,49 +7054,142 @@ function compute(config, inputs) {
     }));
   }
 
-  // ---- Combine, sensitivity, break-evens, ranking (spec 6.14, 6.15) ----
-  const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions];
-
-  // Task completion reality (spec 2.1): can this option finish a meaningful
-  // task from the user's mix in one sitting? A cheap option that cannot is
-  // not a plan, it is a waiting room.
-  // Agentic mode: one task is the whole step sequence (300k in, 16k out),
-  // though the context window only ever holds one step (fit checks, spec 8).
-  const interactiveBig = inp.usage_mode === 'agentic'
-    ? { label: 'Agentic task', input_tokens: dm.interactive.sq_in, output_tokens: dm.interactive.sq_out }
-    : representativeTask(dm.interactive.tasks);
-  const bigTask = dm.agent_tasks_per_day > ZERO
-    ? { label: 'Agent task', input_tokens: dm.agent.sq_in, output_tokens: dm.agent.sq_out }
-    : interactiveBig;
-  for (const o of options) {
-    const isComputeBound = o.family === 'local' || o.family === 'rental';
-    const genTps = isComputeBound ? o.speed.decode_tps.mid : o.per_user_tps_mid;
-    const ttftS = isComputeBound ? bigTask.input_tokens / o.speed.prefill_tps.mid : ttftSeconds(config);
-    const allowance = o.family === 'subscription'
-      ? allowancePerWindow(config, o.tier.id, o.cloud_class)
-      : null;
-    o.big_task_label = bigTask.label;
-    o.task_check = taskCompletion(config, {
-      task_in: bigTask.input_tokens,
-      task_out: bigTask.output_tokens,
-      thinking_mult: thinking,
-      efficiency: o.efficiency_factor,
-      gen_tps: genTps,
-      ttft_s: ttftS,
-      allowance_per_window: allowance,
-      window_h: o.family === 'subscription' ? pval(config, 'subscriptions.window_h') : null
-    });
-    o.task_verdict = taskVerdict(o.task_check);
-    // A task completed needs to be served AND finished: coverage divides in.
-    o.cost_per_completed_task_aud = o.coverage > ZERO && o.cost_per_task_aud != null
-      ? o.cost_per_task_aud / o.coverage
-      : null;
-    if (!o.task_check.fits_session) o.passes_filters = false;
+  // ---- Request-limited plans (spec 6.10a, CR-001 item 4) ----
+  const brokerOptions = [];
+  for (const plan of config.request_plans || []) {
+    const upfrontAud = plan.upfront_usd * fx;
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(plan.context_k, requiredCtx);
+    const brokerWait = waitHours(dm.interactive_sq_per_day, dm.interactive, plan.ttft_s, plan.gen_tps);
+    const series = cumulativeTco(config, {
+      kind: 'flat', monthly_aud: ZERO, price_change: ZERO, upfront_aud: upfrontAud
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+    const tcoHorizon = series.nominal[horizonMonths];
+    brokerOptions.push(optionShell({
+      id: 'broker_' + plan.id,
+      family: 'broker',
+      label: plan.label,
+      sub_label: plan.requests_per_day + ' requests a day, reliability ' + Math.round(plan.reliability * HUNDRED) + '%',
+      data_location: 'provider multi-tenant',
+      upfront_aud: upfrontAud,
+      monthly_avg_aud: ZERO,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      per_user_tps_mid: plan.gen_tps,
+      wait_hours_per_user_year: brokerWait,
+      context_check: ctx,
+      request_plan: plan,
+      flags: ['may_train'],
+      passes_filters: ctx.pass
+    }));
   }
+
+  // ---- Combine, sensitivity, break-evens, ranking (spec 6.14, 6.15) ----
+  const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions, ...brokerOptions];
 
   for (const o of options) {
     o.sensitivity = applySensitivityRules(config, inp.data_sensitivity, o);
   }
+
+  // ---- Task layer and top-up (spec 2.8, 6.11a; CR-001 items 2, 3, 5) ----
+  const rules = { top_up: true, exclude_may_train: false, ...(inp.rules || {}) };
+  const tasks = taskTypesForInputs(config, inp);
+  const taskAttrs = options.map(o => taskAttributesFor(config, o, inp));
+  const apiAttrs = options
+    .map((o, i) => (o.family === 'api' ? taskAttrs[i] : null))
+    .filter(Boolean);
+
+  for (let i = ZERO; i < options.length; i++) {
+    const o = options[i];
+    const cells = tasks.map(t => evaluateTask(config, t, taskAttrs[i], inp));
+    const limits = weeklyLimitsFor(config, taskAttrs[i], inp);
+    const fill = fillWeekly(config, tasks, cells, limits);
+    o.own_share = fill.own_share;
+    o.monthly_own_aud = o.monthly_avg_aud;
+    o.task_cells = [];
+    let topupMonthly = ZERO;
+    let topupTasks = ZERO;
+    let topupHoursWeek = ZERO;
+    let completedTasks = ZERO;
+    const topupClasses = new Set();
+    for (let j = ZERO; j < tasks.length; j++) {
+      const t = tasks[j];
+      const leftover = Math.max(ZERO, t.count_per_week - fill.done[j]);
+      completedTasks += fill.done[j];
+      let topupClass = null;
+      if (leftover > ZERO && rules.top_up) {
+        const fallback = cheapestQualifyingApiForTask(config, t, apiAttrs, { ...inp, rules });
+        if (fallback) {
+          completedTasks += leftover;
+          topupClass = fallback.opt.label;
+          topupClasses.add(fallback.opt.label);
+          topupMonthly += leftover * fallback.cell.api_aud * WEEKS_PER_MONTH;
+          topupTasks += leftover;
+          topupHoursWeek += leftover * (fallback.cell.wall_s + pval(config, 'tasks.handoff_min') * SECONDS_PER_MINUTE) / SECONDS_PER_HOUR;
+        }
+      }
+      o.task_cells.push({
+        task_id: t.id,
+        label: t.label,
+        count: t.count_per_week,
+        status: cells[j].status,
+        reasons: cells[j].reasons,
+        wall_s: cells[j].wall_s,
+        spans: cells[j].spans,
+        done: fill.done[j],
+        leftover,
+        topup_class: topupClass
+      });
+    }
+    o.topup_tasks = topupTasks;
+    o.topup_hours_week = topupHoursWeek;
+    o.topup_monthly_aud = topupMonthly;
+    o.completed_fraction = tasks.reduce((a, t) => a + t.count_per_week, ZERO) > ZERO
+      ? completedTasks / tasks.reduce((a, t) => a + t.count_per_week, ZERO)
+      : ONE;
+    if (topupMonthly > ZERO) {
+      addMeteredTopup(o.tco_series, {
+        monthly_aud: topupMonthly,
+        growth,
+        price_change: pval(config, 'price_change.api_per_year'),
+        discount_rate: discount,
+        gst_multiplier: gst
+      });
+      o.tco_at_horizon = o.tco_series.nominal[horizonMonths];
+      o.tco_at_years = yearSeries(o.tco_series);
+      o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
+    }
+    o.wait_hours_per_user_year += topupHoursWeek * WEEKS_PER_YEAR;
+    // Costed waiting (spec 2.7) uses the final wait hours: interactive plus
+    // top-up processing and hand-off (spec 6.11a).
+    if (vot > ZERO) {
+      addFlatMonthly(o.tco_series, o.wait_hours_per_user_year * vot / MONTHS_PER_YEAR, { discount_rate: discount, gst_multiplier: gst });
+    }
+    o.tco_at_horizon = o.tco_series.nominal[horizonMonths];
+    o.tco_at_years = yearSeries(o.tco_series);
+    o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
+    // Eligibility (spec 6.15, v0.4): a completed week (own share 100 percent,
+    // or 100 percent after top-up), the local speed floor, sensitivity rules,
+    // and the may-train exclusion. The old biggest-task veto (D19) is gone:
+    // slow tasks limit, they do not exclude.
+    const weekComplete = rules.top_up
+      ? o.completed_fraction >= ONE - SUM_EPSILON
+      : o.own_share >= ONE - SUM_EPSILON;
+    const speedOk = o.family !== 'local' || o.speed.decode_tps.mid >= minSpeed;
+    const mayTrainOk = !(rules.exclude_may_train && o.may_train);
+    o.passes_filters = weekComplete && speedOk && mayTrainOk;
+    // Cost per completed task (spec 6.14, v0.4): TCO including top-up over
+    // tasks actually completed. With top-up on and a fallback available,
+    // every task completes, so options compare on the same week.
+    o.cost_per_completed_task_aud = o.tco_at_horizon > ZERO
+      ? o.tco_at_horizon / (tasksServed(dm.sq_per_day, growth, horizonMonths, o.efficiency_factor || ONE) * o.completed_fraction)
+      : ZERO;
+  }
+
   if (localBest) {
     for (const o of options) {
       if (o === localBest) continue;
@@ -6471,10 +7201,34 @@ function compute(config, inputs) {
   }
 
   const ranked = rankOptions(options);
+  ranked.passing = options.filter(o => o.passes_filters && !o.sensitivity.vetoed);
   const winner = ranked.winner;
   const runnerUp = ranked.runner_up;
   if (winner && runnerUp) {
     winner.break_even_vs_runner_up = breakEvenMonth(winner.tco_series, runnerUp.tco_series);
+  }
+
+  // Pay-off multiple (CR-001 item 12): the smallest workload multiple at
+  // which the best local option's TCO at the horizon reaches the best paid
+  // non-local option's, at today's prices. Indicative only.
+  let payoffMultiple = null;
+  if (winner) {
+    const eligible = options.filter(o => o.passes_filters && !o.sensitivity.vetoed);
+    const bestLocal = eligible.filter(o => o.family === 'local').sort((a, b) => a.tco_at_horizon - b.tco_at_horizon)[ZERO] || null;
+    const bestPaidNonLocal = eligible
+      .filter(o => o.family !== 'local' && !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free')
+      .sort((a, b) => a.tco_at_horizon - b.tco_at_horizon)[ZERO] || null;
+    if (bestLocal && bestPaidNonLocal) {
+      const tcoAt = (o, m) => o.upfront_aud + (o.family === 'api'
+        ? (o.monthly_own_aud + o.topup_monthly_aud) * m
+        : o.monthly_own_aud + o.topup_monthly_aud * m) * horizonMonths;
+      if (tcoAt(bestLocal, ONE) <= tcoAt(bestPaidNonLocal, ONE)) payoffMultiple = ONE;
+      else {
+        for (const m of config.payoff_multiples) {
+          if (tcoAt(bestLocal, m) <= tcoAt(bestPaidNonLocal, m)) { payoffMultiple = m; break; }
+        }
+      }
+    }
   }
 
   const sensitivity = (winner && !inp._skip_robustness)
@@ -6486,8 +7240,37 @@ function compute(config, inputs) {
     : { robust: true, flips: [], rows: [] };
 
   let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
-  if (winner && winner.task_verdict) {
-    text += ' Biggest task (' + winner.big_task_label + '): ' + winner.task_verdict;
+  if (winner && winner.task_cells) {
+    const worst = winner.task_cells
+      .filter(c => c.count > ZERO)
+      .slice()
+      .sort((a, b) => (a.status === 'no' ? ZERO : a.status === 'slow' ? ONE : 2) - (b.status === 'no' ? ZERO : b.status === 'slow' ? ONE : 2))[0];
+    const topupNames = Array.from(new Set(winner.task_cells.filter(c => c.topup_class).map(c => c.topup_class)));
+    if (worst && worst.status === 'no') {
+      text += ' On its own it does ' + Math.round(winner.own_share * HUNDRED) + '% of your work; ' + worst.label + ' and any other gaps go to ' + (topupNames.join(' and ') || 'nothing') + ', included in the price.';
+    } else if (winner.own_share < ONE) {
+      text += ' On its own it does ' + Math.round(winner.own_share * HUNDRED) + '% of your work; the rest goes to ' + (topupNames.join(' and ') || 'nothing') + ', included in the price.';
+    } else {
+      text += ' It runs your whole week on its own.';
+    }
+    if (winner.family === 'broker' || winner.id === 'sub_free') {
+      const paid = ranked.passing && ranked.passing.length ? ranked.passing.filter(o => !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free' && o.tco_at_horizon > ZERO)[0] : null;
+      if (paid) {
+        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inputs.horizon_years + ' years.';
+      }
+      if (winner.family === 'broker') {
+        text += ' The free route means request limits (' + winner.request_plan.requests_per_day + ' a day), slower and less reliable replies (about ' + Math.round(winner.request_plan.reliability * HUNDRED) + '%), and data terms that may allow training on your prompts.';
+      }
+    }
+    if (winner.may_train) {
+      text += ' Note: this service may train on your data.';
+    }
+    if (payoffMultiple != null) {
+      if (payoffMultiple === ONE) text += ' A local box already pays for itself at this workload.';
+      else text += ' A local box pays off at about ' + payoffMultiple + 'x this workload.';
+    } else {
+      text += ' A local box does not pay off even at 100x this workload.';
+    }
   }
 
   return {
@@ -6512,6 +7295,103 @@ function compute(config, inputs) {
     explorer_note: explorerNote,
     value_of_time_aud_h: vot,
     meta: { months, horizon_months: horizonMonths, fx, pue, tariff_id: tariff.id, gst_multiplier: gst }
+  };
+}
+
+// Local quality level from the capability targets (spec 2.4): the target
+// whose range the model reaches, checked frontier down to basic.
+function qualityLevelForModel(config, model) {
+  for (const target of [...config.quality_targets].reverse()) {
+    if (model.moe) {
+      if (target.moe_total_b != null && model.total_b >= target.moe_total_b) return target.id;
+    } else if (target.dense_b && model.total_b >= target.dense_b[0]) {
+      return target.id;
+    }
+  }
+  return 'basic';
+}
+
+// Option attributes for the task layer (spec 2.8).
+function taskAttributesFor(config, o, inp) {
+  const base = {
+    id: o.id,
+    label: o.label,
+    reliability: ONE,
+    may_train: !!o.may_train,
+    vetoed: o.sensitivity.vetoed,
+    veto_reason: o.sensitivity.reasons[ZERO],
+    agent_tools: true,
+    verbosity: pval(config, 'verbosity.cloud')
+  };
+  if (o.family === 'local' || o.family === 'rental') {
+    return {
+      ...base,
+      kind: o.family,
+      quality_level: qualityLevelForModel(config, o.model),
+      context_k: inp.context_k,
+      verbosity: o.efficiency_factor,
+      gen_tps: o.speed.decode_tps.mid,
+      prefill_tps: o.speed.prefill_tps.mid,
+      ttft_s: pval(config, 'tasks.local_ttft_s')
+    };
+  }
+  if (o.family === 'subscription') {
+    const prefill = burstTps(config, o.cloud_class) * pval(config, 'speed.prefill_multiplier_gpu_modern');
+    if (o.tier.id === 'free') {
+      const free = tierById(config, 'free');
+      return {
+        ...base,
+        kind: 'window',
+        quality_level: free.quality_level,
+        context_k: free.context_k,
+        agent_tools: free.agent_tools,
+        gen_tps: burstTps(config, o.cloud_class),
+        prefill_tps: prefill,
+        ttft_s: ttftSeconds(config),
+        allowance_per_window: allowancePerWindow(config, 'free', o.cloud_class),
+        window_h: pval(config, 'subscriptions.window_h')
+      };
+    }
+    return {
+      ...base,
+      kind: 'window',
+      quality_level: o.cloud_class_quality,
+      context_k: apiWindowK(config, o.cloud_class),
+      gen_tps: burstTps(config, o.cloud_class),
+      prefill_tps: prefill,
+      ttft_s: ttftSeconds(config),
+      allowance_per_window: allowancePerWindow(config, o.tier.id, o.cloud_class),
+      window_h: pval(config, 'subscriptions.window_h')
+    };
+  }
+  if (o.family === 'api') {
+    return {
+      ...base,
+      kind: 'api',
+      quality_level: o.api_class.quality_level,
+      context_k: o.api_class.context_k,
+      verbosity: pval(config, 'verbosity.cloud') * o.efficiency_factor,
+      gen_tps: o.per_user_tps_mid,
+      prefill_tps: o.per_user_tps_mid * pval(config, 'speed.prefill_multiplier_gpu_modern'),
+      ttft_s: ttftSeconds(config),
+      price_in_aud: o.api_class.price_aud_per_1m_input,
+      price_out_aud: o.api_class.price_aud_per_1m_output
+    };
+  }
+  const plan = o.request_plan;
+  return {
+    ...base,
+    kind: 'requests',
+    quality_level: plan.quality_level,
+    context_k: plan.context_k,
+    agent_tools: plan.agent_tools,
+    reliability: plan.reliability,
+    may_train: plan.may_train,
+    gen_tps: plan.gen_tps,
+    prefill_tps: plan.prefill_tps,
+    ttft_s: plan.ttft_s,
+    requests_per_day: plan.requests_per_day,
+    requests_per_min: plan.requests_per_min
   };
 }
 
@@ -6688,14 +7568,15 @@ function optionRow(o, result) {
     perUserPerMonth(o, result),
     beText,
     o.capacity_sq_per_day == null ? 'unlimited' : Math.round(o.capacity_sq_per_day).toLocaleString('en-AU') + ' SQ/day',
-    Math.round(o.coverage * 100) + '%',
+    Math.round((o.own_share != null ? o.own_share : o.coverage) * 100) + '%',
+    o.topup_monthly_aud ? '$' + o.topup_monthly_aud.toFixed(2) : '-',
     o.per_user_tps_mid == null ? '-' : Math.round(o.per_user_tps_mid) + ' tok/s',
     o.lockout_h_per_day ? o.lockout_h_per_day.toFixed(1) + ' h/day' : '0',
     Math.round(o.wait_hours_per_user_year) + ' h/yr',
     o.utilisation == null ? '-' : Math.round(o.utilisation * 100) + '%',
     o.cost_per_task_aud == null ? '-' : '$' + o.cost_per_task_aud.toFixed(4),
     o.cost_per_completed_task_aud == null ? '-' : '$' + o.cost_per_completed_task_aud.toFixed(4),
-    o.task_verdict || '-',
+    gridVerdict(o),
     ctx,
     o.data_location,
     flags.join(', ') || '-'
@@ -6851,7 +7732,7 @@ function renderPlanCards(result) {
     speed.textContent = 'Speed: about ' + Math.round(tps) + ' tok/s (' + speedFeel(tps) + ').';
     card.appendChild(speed);
     const task = document.createElement('p');
-    task.textContent = o.task_verdict || '';
+    task.textContent = gridVerdict(o);
     card.appendChild(task);
     const day = document.createElement('p');
     day.textContent = o.coverage >= 1
@@ -6931,6 +7812,18 @@ function renderCrossoverNotes(result) {
   if (simple) simple.textContent = crossoverStatements(result).join(' ');
 }
 
+function gridVerdict(o) {
+  if (!o.task_cells) return '';
+  const counted = o.task_cells.filter(c => c.count > ZERO_CELL);
+  const bad = counted.filter(c => c.status === 'no');
+  if (bad.length) return bad[0].label + ': ' + bad[0].reasons[0] + ', topped up by ' + (bad[0].topup_class || 'nothing') + '.';
+  const slow = counted.filter(c => c.status === 'slow');
+  if (slow.length) return slow[0].label + ': ' + slow[0].reasons.join('; ') + '.';
+  return 'Runs your whole week' + (o.own_share < 1 ? ' with pay-as-you-go top-up.' : ' on its own.');
+}
+
+const ZERO_CELL = 0;
+
 function speedFeel(tps) {
   if (tps >= 100) return 'instant feel';
   if (tps >= 30) return 'fast';
@@ -6938,7 +7831,54 @@ function speedFeel(tps) {
   return 'painfully slow';
 }
 
+function weekGrid(result, containerId) {
+  const wrap = $(containerId);
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const tasks = result.options[0] && result.options[0].task_cells ? result.options[0].task_cells : [];
+  const table = document.createElement('table');
+  table.className = 'compare week-grid';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  const heads = ['Option', 'On its own'].concat(tasks.map(t => t.label + ' (' + Math.round(t.count) + '/wk)'));
+  for (const h of heads) {
+    const th = document.createElement('th');
+    th.innerHTML = h;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (const o of result.options) {
+    const tr = document.createElement('tr');
+    if (o.sensitivity.vetoed) tr.className = 'vetoed';
+    else if (result.recommendation.winner && o.id === result.recommendation.winner.id) tr.className = 'winner';
+    const name = document.createElement('td');
+    name.innerHTML = o.label + ' <span class="chart-note">' + Math.round((o.own_share != null ? o.own_share : 0) * 100) + '% on its own</span>';
+    tr.appendChild(name);
+    for (const c of o.task_cells) {
+      const td = document.createElement('td');
+      if (c.count === 0) {
+        td.innerHTML = '<span class="chart-note">not in your week</span>';
+      } else if (c.status === 'no') {
+        td.innerHTML = '<strong>No.</strong> ' + c.reasons[0] + (c.topup_class ? ' Top-up: ' + c.topup_class + '.' : ' Left undone.');
+      } else if (c.status === 'slow') {
+        const mins = c.wall_s > 0 ? Math.round(c.wall_s / 60) + ' min' : '';
+        td.innerHTML = '<strong>Slow.</strong> ' + c.reasons.join(' ') + (mins ? ' About ' + mins + ' per task.' : '') + (c.leftover > 0 && c.topup_class ? ' Top-up: ' + c.topup_class + '.' : '');
+      } else {
+        td.innerHTML = '<strong>Yes.</strong>' + (c.leftover > 0 && c.topup_class ? ' Partly, top-up: ' + c.topup_class + '.' : '');
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
 function renderAll(config, result) {
+  weekGrid(result, 'week-grid');
+  weekGrid(result, 'week-grid-simple');
   renderRecommendation(result);
   renderTable(result);
   renderHardwareCard(result);
@@ -8087,6 +9027,8 @@ function onInputChanged() {
 
 function recalculate() {
   readInputs(CONFIG);
+  readRules(CONFIG);
+  readOwnWeek(CONFIG);
   readExplorer(CONFIG);
   const saved = inputsFor('single_user', CONFIG);
   const engineIn = engineInputs('single_user', CONFIG);
@@ -8141,7 +9083,70 @@ function writeSimpleInputs(config) {
   }
 }
 
+const OWN_WEEK_IDS = ['quick_question', 'document_summary', 'writing_drafting', 'code_data_assist', 'analysis_rag', 'agentic_task', 'hard_problem'];
+
+function buildOwnWeek() {
+  const grid = $('own-week-inputs');
+  grid.innerHTML = '';
+  for (const id of OWN_WEEK_IDS) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = 0;
+    input.step = 1;
+    input.id = 'ow-' + id;
+    input.addEventListener('change', onInputChanged);
+    const label = document.createElement('label');
+    const span = document.createElement('span');
+    span.textContent = id.replace(/_/g, ' ') + ' per week';
+    label.appendChild(span);
+    label.appendChild(input);
+    grid.appendChild(label);
+  }
+}
+
+function writeOwnWeek(config) {
+  const saved = inputsFor('single_user', config);
+  const ow = saved.own_week || { enabled: false, counts: {} };
+  $('own-week-enabled').checked = !!ow.enabled;
+  $('own-week-inputs').classList.toggle('visible', !!ow.enabled);
+  for (const id of OWN_WEEK_IDS) {
+    const el = $('ow-' + id);
+    el.value = ow.counts && ow.counts[id] != null ? ow.counts[id] : 0;
+  }
+}
+
+function readOwnWeek(config) {
+  const saved = inputsFor('single_user', config);
+  const ow = saved.own_week || { enabled: false, counts: {} };
+  ow.enabled = $('own-week-enabled').checked;
+  $('own-week-inputs').classList.toggle('visible', ow.enabled);
+  ow.counts = ow.counts || {};
+  for (const id of OWN_WEEK_IDS) {
+    ow.counts[id] = Number($('ow-' + id).value) || 0;
+  }
+  saved.own_week = ow;
+}
+
+function writeRules(config) {
+  const saved = inputsFor('single_user', config);
+  const rules = saved.rules || { top_up: true, exclude_may_train: false };
+  $('rule-topup').checked = !!rules.top_up;
+  $('rule-maytrain').checked = !!rules.exclude_may_train;
+  saved.rules = rules;
+}
+
+function readRules(config) {
+  const saved = inputsFor('single_user', config);
+  saved.rules = {
+    top_up: $('rule-topup').checked,
+    exclude_may_train: $('rule-maytrain').checked
+  };
+}
+
 function initGlobals() {
+  $('rule-topup').addEventListener('change', onInputChanged);
+  $('rule-maytrain').addEventListener('change', onInputChanged);
+  $('own-week-enabled').addEventListener('change', onInputChanged);
   $('view-simple').addEventListener('change', () => {
     state.simpleView = $('view-simple').checked;
     document.body.classList.toggle('simple-view', state.simpleView);
@@ -8174,6 +9179,7 @@ function boot() {
   buildInputs(CONFIG);
   buildExplorer(CONFIG);
   buildSimpleInputs(CONFIG);
+  buildOwnWeek();
   const fromHash = readHash();
   if (!fromHash) loadLocal();
   initSettings();
@@ -8182,6 +9188,12 @@ function boot() {
   writeInputs(CONFIG);
   writeExplorer(CONFIG);
   writeSimpleInputs(CONFIG);
+  writeRules(CONFIG);
+  writeOwnWeek(CONFIG);
+  if (!CONFIG.features || !CONFIG.features.org_tabs) {
+    const orgButtons = document.querySelectorAll('.tabs button[data-tab="small_business"], .tabs button[data-tab="enterprise"], .tabs button[data-tab="compare_sizes"]');
+    for (const b of orgButtons) b.style.display = 'none';
+  }
   document.body.classList.toggle('simple-view', !!state.simpleView);
   if ($('view-simple')) $('view-simple').checked = !!state.simpleView;
   recalculate();

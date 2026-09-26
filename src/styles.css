@@ -239,3 +239,8 @@ body.settings-open #settings-backdrop { display: block; }
 .preset-row select, .preset-row input[type="text"], #import-export { font-size: 0.85rem; padding: 0.3rem; border: 1px solid var(--line); border-radius: 5px; }
 .preset-row button, #import-file { font-size: 0.85rem; }
 #import-export { width: 100%; font-family: monospace; font-size: 0.75rem; }
+
+.week-grid td { max-width: 260px; white-space: normal !important; text-align: left !important; font-size: 0.75rem; }
+.week-grid td strong { font-size: 0.8rem; }
+#own-week-inputs { margin-top: 0.5rem; display: none; }
+#own-week-inputs.visible { display: grid; }

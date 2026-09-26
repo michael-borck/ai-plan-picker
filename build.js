@@ -17,11 +17,13 @@ const OUT = path.join(ROOT, 'dist', 'comparator.html');
 const ENGINE_ORDER = [
   'units.js', 'params.js', 'memory.js', 'hardware.js', 'speed.js', 'configSearch.js',
   'demand.js', 'localCost.js', 'rental.js', 'subscription.js', 'api.js', 'timeSeries.js',
-  'fitChecks.js', 'taskTime.js', 'profile24.js', 'select.js', 'recommend.js', 'config-io.js', 'compute.js'
+  'fitChecks.js', 'taskLayer.js', 'profile24.js', 'select.js', 'recommend.js', 'config-io.js', 'compute.js'
 ];
 
 function stripEsm(code) {
   return code
+    // multi-line named imports first, then anything left on one line
+    .replace(/import\s*\{[^}]*\}\s*from\s*'[^']*';?/g, '')
     .split('\n')
     .filter(line => !/^\s*import\s/.test(line))
     .filter(line => !/^\s*export\s*\{[^}]*\}\s*;?\s*$/.test(line))
@@ -67,9 +69,9 @@ ${css}
     </div>
     <nav class="tabs" aria-label="Organisation size">
       <button data-tab="single_user" aria-selected="true">Single user</button>
-      <button data-tab="small_business" disabled title="Phase 4">Small business</button>
-      <button data-tab="enterprise" disabled title="Phase 4">Enterprise</button>
-      <button data-tab="compare_sizes" disabled title="Phase 6">Compare sizes</button>
+      <button data-tab="small_business" disabled title="Deferred to v2">Small business</button>
+      <button data-tab="enterprise" disabled title="Deferred to v2">Enterprise</button>
+      <button data-tab="compare_sizes" disabled title="Deferred to v2">Compare sizes</button>
     </nav>
     <div class="globals">
       <label>Horizon
@@ -119,6 +121,20 @@ ${css}
   </section>
 
   <section class="card simple-only">
+    <h2>Rules</h2>
+    <label class="checkbox-line"><span>Top up what a plan cannot finish, with pay-as-you-go (recommended)</span><input type="checkbox" id="rule-topup" checked></label>
+    <label class="checkbox-line"><span>Leave out services that may train on my data</span><input type="checkbox" id="rule-maytrain"></label>
+    <label class="checkbox-line"><span>Use my own week: type the counts yourself</span><input type="checkbox" id="own-week-enabled"></label>
+    <div class="grid-inputs" id="own-week-inputs"></div>
+  </section>
+
+  <section class="card simple-only">
+    <h2>Can it do your week?</h2>
+    <div class="table-wrap" id="week-grid-simple"></div>
+    <p class="chart-note">Yes means the plan finishes that task in a sitting. Slow means it works but with waiting: retries, reset windows or pace. No means it cannot, and the work goes to the top-up service named in the cell.</p>
+  </section>
+
+  <section class="card simple-only">
     <h2>The plans, side by side</h2>
     <p id="usage-summary"></p>
     <div class="grid-inputs" id="simple-inputs">
@@ -136,6 +152,12 @@ ${css}
     <h2>Plan advice</h2>
     <div id="recommendation"></div>
     <div class="teaching" id="teaching"></div>
+  </section>
+
+  <section class="card detailed-only">
+    <h2>Can it do your week?</h2>
+    <div class="table-wrap" id="week-grid"></div>
+    <p class="chart-note">Rows are options, columns are your task types this week. Yes finishes in a sitting; Slow works but with waiting; No cannot, and tops up.</p>
   </section>
 
   <section class="card detailed-only">
@@ -177,7 +199,7 @@ ${css}
             <th>Option</th><th>Upfront</th><th>Monthly avg</th>
             <th>TCO 1y</th><th>TCO 2y</th><th>TCO 3y</th><th>TCO 4y</th><th>TCO 5y</th>
             <th>Per user per month</th><th>Break-even vs local</th>
-            <th>Capacity</th><th>Coverage</th><th>Speed</th><th>Lockout</th>
+            <th>Capacity</th><th>On its own</th><th>Top-up/mo</th><th>Speed</th><th>Lockout</th>
             <th>Waiting</th><th>Utilisation</th><th>Cost per task</th>
             <th>Biggest task</th><th>Context</th><th>Data location</th><th>Flags</th>
           </tr>
@@ -196,7 +218,7 @@ ${css}
       <div class="chart-box"><canvas id="capacity-chart" role="img" aria-label="Capacity in Standard Queries per day versus demand"></canvas></div>
     </details>
     <details class="more">
-      <summary>Still to come: sensitivity tornado, winner map, combinations, compare sizes.</summary>
+      <summary>Deferred to v2: winner map, combinations routing, business and enterprise tabs.</summary>
     </details>
   </section>
 
@@ -207,7 +229,7 @@ ${css}
 </main>
 
 <footer>
-  <p class="chart-note">Every parameter is editable with provenance in the Settings panel (later phase). Data: LocoLabo TCO Data Pack, 31 August 2026, plus assumptions marked in the specification. This page gives estimates, not financial or tax advice.</p>
+  <p class="chart-note">Every parameter is editable with provenance in the Settings panel. Data: LocoLabo TCO Data Pack, 31 August 2026, plus assumptions marked in the specification. This page gives estimates, not financial or tax advice.</p>
 </footer>
 
 <aside id="settings-panel" role="dialog" aria-label="Settings" aria-hidden="true">
