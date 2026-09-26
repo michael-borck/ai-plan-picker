@@ -1,0 +1,635 @@
+// compute.js: compute(config, inputs) -> results for the Single user tab
+// (spec 9). One pure engine for every tab; a tab is only defaults, visible
+// inputs and chart order. Business tabs (Phase 4) will pass their own inputs
+// into the same function.
+
+import { pval } from './params.js';
+import { demandPerDay, thinkingMultiplier, effectiveSizeB, localEfficiencyFactor, cloudEfficiencyFactor, tokensPerDay, busySecondsPerSq } from './demand.js';
+import { searchConfigs } from './configSearch.js';
+import { modelCandidatesForTarget, explorerModel, chooseByObjective } from './select.js';
+import { modelMemory } from './memory.js';
+import { tariffById, energyAudPerDay, reserveAudPerYear, lifeMonthsFor, adminAudPerMonth, utilisation } from './localCost.js';
+import { smallestRentalClass, rentalSpeed, hourlyAudPerDay, monthlyAudPerMonth } from './rental.js';
+import { tierById, capacityPerDay, burstTps, ttftSeconds, simulateSubscriptionDay, allowancePerWindow } from './subscription.js';
+import { apiClassInfo, cachedShareForMode, apiDailyCostAud } from './api.js';
+import { cumulativeTco, tcoAtYear, breakEvenMonth, tasksServed } from './timeSeries.js';
+import { requiredContextTokens, contextCheck } from './fitChecks.js';
+import { representativeTask, taskCompletion, taskVerdict } from './taskTime.js';
+import { applySensitivityRules, rankOptions, sensitivityAnalysis, formatRecommendation } from './recommend.js';
+import { batchGain } from './speed.js';
+import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, DAYS_PER_YEAR, HUNDRED, ZERO, ONE, TWO } from './units.js';
+
+// Parameters included in the robustness sweep (spec 6.15). Curated for the
+// single-user path: every banded parameter this path actually consumes.
+const SENSITIVITY_PARAMS = [
+  'power.inference_factor',
+  'fx.usd_aud',
+  'subscriptions.base_allowance_tokens',
+  'subscriptions.window_h',
+  'demand.growth_per_year',
+  'api.previous_ratio',
+  'price_change.api_per_year',
+  'speed.eta_cpu'
+];
+
+const SUB_TIERS_CONSUMER = ['free', 'base', 'pro', 'max'];
+const API_CLASSES_CORE = ['best', 'previous', 'cheap'];
+const API_CLASSES_OPTIONAL = ['premium', 'budget_offshore'];
+
+function gstMultiplierFor(config, display) {
+  return display === 'incl' ? ONE + pval(config, 'gst.rate') : ONE;
+}
+
+function reserveSplit(cand) {
+  const secondhand = (cand.platform.market === 'secondhand' ? cand.price.platform_aud + cand.price.ram_aud : 0)
+    + (cand.band_market === 'secondhand' ? cand.price.gpus_aud + cand.price.extra_gpu_aud : 0);
+  const fresh = cand.price.total_aud - secondhand;
+  return { secondhand_aud: secondhand, new_aud: fresh };
+}
+
+function optionShell(partial) {
+  return {
+    upfront_aud: ZERO,
+    monthly_avg_aud: ZERO,
+    tco_at_horizon: ZERO,
+    tco_at_years: [],
+    capacity_sq_per_day: null,
+    coverage: ONE,
+    per_user_tps_mid: null,
+    lockout_h_per_day: ZERO,
+    wait_hours_per_user_year: ZERO,
+    utilisation: null,
+    cost_per_task_aud: null,
+    context_check: null,
+    break_even_vs_local: null,
+    break_even_vs_runner_up: null,
+    roi_at_horizon: null,
+    sensitivity_tags: [],
+    sensitivity: { vetoed: false, flagged: false, reasons: [] },
+    passes_filters: false,
+    flags: [],
+    ...partial
+  };
+}
+
+export function compute(config, inputs) {
+  const inp = {
+    ...config.defaults_inputs.single_user,
+    growth_per_year: pval(config, 'demand.growth_per_year'),
+    discount_rate: pval(config, 'discount.single_user'),
+    context_k: pval(config, 'fit.context_default_k'),
+    bits_per_weight: pval(config, 'quant.q4_k_m_bits_per_weight'),
+    ...inputs
+  };
+
+  const months = HORIZON_MONTHS_MAX;
+  const horizonMonths = inp.horizon_years * MONTHS_PER_YEAR;
+  const thinking = thinkingMultiplier(config, inp.thinking);
+  const dm = demandPerDay(config, inp);
+  const preset = dm.preset;
+  const fx = pval(config, 'fx.usd_aud');
+  const tariff = tariffById(config, inp.tariff_id);
+  const pue = pval(config, 'power.pue_single_user');
+  const minSpeed = pval(config, 'fit.min_speed_tps');
+  const poweredH = inp.powered_h_per_day;
+  const peakShare = pval(config, 'demand.peak_hour_share');
+  const gst = gstMultiplierFor(config, inp.gst_display);
+  const growth = inp.growth_per_year;
+  const discount = inp.discount_rate;
+  const target = config.quality_targets.find(t => t.id === inp.quality_target);
+  if (!target) throw new Error('Unknown quality target: ' + inp.quality_target);
+
+  const busySeconds = (mix, sqPerDay, speed, efficiency) =>
+    sqPerDay * busySecondsPerSq(mix.sq_in, mix.sq_out, {
+      prefill_tps: speed.prefill_tps.mid,
+      decode_tps: speed.decode_tps.mid,
+      thinking_mult: thinking,
+      efficiency
+    });
+
+  const waitHours = (sqPerDay, mix, ttftS, tpsMid) =>
+    sqPerDay * (ttftS + mix.sq_out * thinking / tpsMid) * DAYS_PER_YEAR / SECONDS_PER_HOUR;
+
+  const concurrency = Math.max(ONE, inp.parallel_agents);
+  const vot = Number(inp.value_of_time_aud_h) > ZERO ? Number(inp.value_of_time_aud_h) : ZERO;
+  // Waiting time costed at the value of time (spec 2.7). Zero keeps it off.
+  const waitCostMonthly = waitHYr => vot > ZERO ? waitHYr * vot / MONTHS_PER_YEAR : ZERO;
+
+  // ---- Local options (spec 6.3, 6.4, 6.8; explorer override per 4.2) ----
+  const explorer = inp.explorer && inp.explorer.active ? inp.explorer : null;
+  let explorerNote = null;
+  let localMeta = [];
+  let explorerPick = null;
+
+  if (explorer) {
+    const resolved = explorerModel(config, {
+      mode: explorer.mode,
+      budget_aud: explorer.budget_aud,
+      total_b: Number(explorer.total_b),
+      active_b: Number(explorer.active_b),
+      moe: !!explorer.moe,
+      bits: inp.bits_per_weight,
+      context_k: inp.context_k,
+      min_speed_tps: minSpeed,
+      must_be_new: explorer.market === 'new',
+      streams: concurrency
+    });
+    if (resolved.model) {
+      const autoBudget = explorer.budget_aud === 'auto' || explorer.mode === 'budget_only';
+      const budget = autoBudget ? null : Number(explorer.budget_aud);
+      // Auto budget means the cheapest build that meets demand (spec 4.1),
+      // regardless of the objective dial.
+      const objective = autoBudget ? 'cheapest' : explorer.objective;
+      const search = searchConfigs(config, {
+        model: resolved.model, bits: inp.bits_per_weight, context_k: inp.context_k,
+        must_be_new: explorer.market === 'new', allow_server: false,
+        budget_aud: budget, min_speed_tps: minSpeed
+      });
+      const chosen = chooseByObjective(config, search.qualifying, objective, minSpeed);
+      if (chosen) {
+        localMeta.push({
+          model: resolved.model,
+          cand: chosen,
+          efficiency: localEfficiencyFactor(config, effectiveSizeB(resolved.model))
+        });
+        explorerPick = { model: resolved.model, cand: chosen, via_ladder: resolved.via_ladder };
+      }
+    }
+    if (!localMeta.length) {
+      explorerNote = 'No hardware explorer build fits this scenario. Showing the quality-target search instead.';
+    }
+  }
+
+  if (!localMeta.length) {
+    const candidates = modelCandidatesForTarget(config, inp.quality_target);
+    for (const model of candidates) {
+      const search = searchConfigs(config, {
+        model, bits: inp.bits_per_weight, context_k: inp.context_k,
+        must_be_new: inp.must_be_new, allow_server: false,
+        budget_aud: null, min_speed_tps: minSpeed
+      });
+      const efficiency = localEfficiencyFactor(config, effectiveSizeB(model));
+      for (const cand of search.qualifying) {
+        localMeta.push({ model, cand, efficiency });
+      }
+    }
+  }
+
+  const localOptions = [];
+  for (const { model, cand, efficiency } of localMeta) {
+    const busySInteractive = busySeconds(dm.interactive, dm.interactive_sq_per_day, cand.speed, efficiency);
+    const busySAgent = busySeconds(dm.agent, dm.agent_sq_per_day, cand.speed, efficiency);
+    const busyHPeak = busySInteractive / SECONDS_PER_HOUR;
+    const busyHOffpeak = busySAgent / SECONDS_PER_HOUR;
+    const busyHTotal = busyHPeak + busyHOffpeak;
+
+    const energy = energyAudPerDay(config, {
+      load_w: cand.watts.load_w, idle_w: cand.watts.idle_w,
+      busy_h_peak: busyHPeak, busy_h_offpeak: busyHOffpeak,
+      powered_h: poweredH, pue, tariff
+    });
+
+    const setup = inp.paid_help ? pval(config, 'ownership.hardware_setup_aud') : ZERO;
+    const reserve = reserveAudPerYear(config, reserveSplit(cand)) / MONTHS_PER_YEAR;
+    const admin = adminAudPerMonth(config, { hours_per_month: pval(config, 'admin.hours_single_user_per_month'), rate_aud_per_hour: ZERO });
+
+    const ttftLocalS = dm.interactive.sq_in / cand.speed.prefill_tps.mid;
+    const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftLocalS, cand.speed.decode_tps.mid);
+    const waitCost = waitCostMonthly(waitH);
+
+    const series = cumulativeTco(config, {
+      kind: 'local',
+      capex_aud: cand.price_aud,
+      setup_aud: setup,
+      idle_energy_aud_day: energy.aud_per_day_idle,
+      busy_energy_aud_day: energy.aud_per_day_busy,
+      reserve_aud_month: reserve,
+      admin_aud_month: admin,
+      demand_charge_aud_month: ZERO,
+      life_months: lifeMonthsFor(config, cand.platform),
+      residual_on: false,
+      growth,
+      extra_monthly_aud: waitCost
+    }, { months, discount_rate: discount, gst_multiplier: ONE });
+
+    const capacitySqPerDay = busySInteractive + busySAgent > ZERO
+      ? poweredH * SECONDS_PER_HOUR / ((busySInteractive + busySAgent) / dm.sq_per_day)
+      : Infinity;
+    const coverage = Math.min(ONE, capacitySqPerDay / dm.sq_per_day);
+
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(inp.context_k, requiredCtx);
+
+    const tcoHorizon = series.nominal[horizonMonths];
+    const tasks = tasksServed(dm.sq_per_day, growth, horizonMonths, efficiency);
+
+    localOptions.push(optionShell({
+      id: 'local_' + cand.signature,
+      family: 'local',
+      label: 'Local: ' + cand.platform_label + ', ' + (cand.card_ref ? cand.card_ref + (cand.n_gpu > ONE ? ' x ' + cand.n_gpu : '') : 'CPU only') + ', ' + cand.ram_gb + ' GB RAM',
+      sub_label: cand.placement + ' placement, ' + cand.band_label,
+      data_location: 'premises',
+      market: cand.market,
+      upfront_aud: cand.price_aud + setup,
+      monthly_avg_aud: (tcoHorizon - cand.price_aud - setup) / horizonMonths,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      capacity_sq_per_day: capacitySqPerDay,
+      coverage,
+      per_user_tps_mid: cand.speed.decode_tps.mid,
+      wait_hours_per_user_year: waitH,
+      utilisation: utilisation(busyHTotal, poweredH),
+      cost_per_task_aud: tcoHorizon / tasks,
+      context_check: ctx,
+      roi_at_horizon: ZERO,
+      price_breakdown: cand.price,
+      memory: cand.memory,
+      speed: cand.speed,
+      watts: cand.watts,
+      wait_cost_aud_month: waitCost,
+      model,
+      efficiency_factor: efficiency,
+      candidate: cand,
+      passes_filters: coverage >= ONE && ctx.pass && cand.speed.decode_tps.mid >= minSpeed,
+      quality_target: inp.quality_target
+    }));
+  }
+
+  localOptions.sort((a, b) => a.tco_at_horizon - b.tco_at_horizon);
+  const localBest = localOptions[ZERO] || null;
+  // Best config plus 2 alternates (spec 5): three options in total.
+  const localShortlist = localOptions.slice(ZERO, localOptions.length ? ONE + TWO : ZERO);
+
+  const canonicalModel = localBest ? localBest.model : candidates[candidates.length - 1];
+  const canonicalEfficiency = localBest ? localBest.efficiency_factor : localEfficiencyFactor(config, effectiveSizeB(canonicalModel));
+
+  // ---- Rental (spec 6.9) ----
+  const rentalOptions = [];
+  const memForRental = searchMemory(config, canonicalModel, inp);
+  const cls = memForRental ? smallestRentalClass(config, memForRental.required_gb) : null;
+
+  if (cls) {
+    const speed = rentalSpeed(config, cls, { active_b: canonicalModel.active_b, bits_per_weight: inp.bits_per_weight, moe: canonicalModel.moe });
+    const agentBusyS = busySeconds(dm.agent, dm.agent_sq_per_day, speed, canonicalEfficiency);
+    const rentedH = preset.interactive_h + agentBusyS / SECONDS_PER_HOUR;
+    const sessions = pval(config, 'rental.sessions_per_day');
+    const daily = hourlyAudPerDay(config, cls, { hours: rentedH, sessions, fx });
+
+    const busySInteractive = busySeconds(dm.interactive, dm.interactive_sq_per_day, speed, canonicalEfficiency);
+    const busySTotal = busySInteractive + agentBusyS;
+    const capacitySqPerDay = busySTotal > ZERO ? rentedH * SECONDS_PER_HOUR / (busySTotal / dm.sq_per_day) : Infinity;
+    const coverage = Math.min(ONE, capacitySqPerDay / dm.sq_per_day);
+
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(apiWindowK(config, target.cloud_class), requiredCtx);
+
+    const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
+
+    const series = cumulativeTco(config, {
+      kind: 'hours', daily_aud: daily, price_change: pval(config, 'price_change.rental_per_year'),
+      extra_monthly_aud: waitCostMonthly(waitH)
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+
+    const tcoHorizon = series.nominal[horizonMonths];
+    const tasks = tasksServed(dm.sq_per_day, growth, horizonMonths, canonicalEfficiency);
+
+    rentalOptions.push(optionShell({
+      id: 'rental_hourly_' + cls.id,
+      family: 'rental',
+      label: 'Rent GPU hourly: ' + cls.label,
+      sub_label: 'About ' + rentedH.toFixed(1) + ' rented hours per day',
+      data_location: 'provider rack',
+      sensitivity_tags: ['rental_hourly'],
+      monthly_avg_aud: tcoHorizon / horizonMonths,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      capacity_sq_per_day: capacitySqPerDay,
+      coverage,
+      per_user_tps_mid: speed.decode_tps.mid,
+      wait_hours_per_user_year: waitH,
+      cost_per_task_aud: tcoHorizon / tasks,
+      context_check: ctx,
+      speed,
+      rental_class: cls,
+      rented_h: rentedH,
+      efficiency_factor: canonicalEfficiency,
+      passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
+    }));
+  }
+
+  for (const mode of ['reserved', 'vps']) {
+    if (!cls) break;
+    const monthly = monthlyAudPerMonth(config, cls, mode, fx);
+    if (monthly == null) continue;
+    const speed = rentalSpeed(config, cls, { active_b: canonicalModel.active_b, bits_per_weight: inp.bits_per_weight, moe: canonicalModel.moe });
+    const busySInteractive = busySeconds(dm.interactive, dm.interactive_sq_per_day, speed, canonicalEfficiency);
+    const agentBusyS = busySeconds(dm.agent, dm.agent_sq_per_day, speed, canonicalEfficiency);
+    const capacitySqPerDay = busySInteractive + agentBusyS > ZERO
+      ? poweredH * SECONDS_PER_HOUR / ((busySInteractive + agentBusyS) / dm.sq_per_day)
+      : Infinity;
+    const coverage = Math.min(ONE, capacitySqPerDay / dm.sq_per_day);
+
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(apiWindowK(config, target.cloud_class), requiredCtx);
+
+    const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
+
+    const series = cumulativeTco(config, {
+      kind: 'flat', monthly_aud: monthly, price_change: pval(config, 'price_change.rental_per_year'),
+      extra_monthly_aud: waitCostMonthly(waitH)
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+
+    const tcoHorizon = series.nominal[horizonMonths];
+    const tasks = tasksServed(dm.sq_per_day, growth, horizonMonths, canonicalEfficiency);
+
+    rentalOptions.push(optionShell({
+      id: 'rental_' + mode + '_' + cls.id,
+      family: 'rental',
+      label: mode === 'reserved' ? 'Rent GPU monthly: ' + cls.label : 'GPU VPS: ' + cls.label,
+      sub_label: 'Dedicated card, you run the stack',
+      data_location: 'provider rack',
+      sensitivity_tags: mode === 'reserved' ? ['rental_monthly'] : ['rental_monthly'],
+      monthly_avg_aud: monthly,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      capacity_sq_per_day: capacitySqPerDay,
+      coverage,
+      per_user_tps_mid: speed.decode_tps.mid,
+      wait_hours_per_user_year: waitH,
+      cost_per_task_aud: tcoHorizon / tasks,
+      context_check: ctx,
+      speed,
+      rental_class: cls,
+      passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
+    }));
+  }
+
+  // ---- Subscriptions (spec 6.10) ----
+  const verbosity = pval(config, 'verbosity.cloud');
+  const cloudTokens = tokensPerDay(dm.sq_in_per_day, dm.sq_out_per_day, thinking, verbosity * cloudEfficiencyFactor(config, target.cloud_class));
+  const subOptions = [];
+  for (const tierId of SUB_TIERS_CONSUMER) {
+    const tier = tierById(config, tierId);
+    const capacity = capacityPerDay(config, tierId, target.cloud_class, {
+      interactive_h: preset.interactive_h, unattended_h: preset.unattended_h, days_per_week: preset.days_per_week
+    });
+    const sim = simulateSubscriptionDay(config, {
+      allowance: capacity.allowance_per_window,
+      span_h: preset.interactive_h,
+      tokens_per_day: cloudTokens.tokens_per_day,
+      peak_share: peakShare
+    });
+    const coverage = Math.min(sim.coverage, cloudTokens.tokens_per_day > ZERO ? capacity.capacity_tokens_per_day / cloudTokens.tokens_per_day : ONE);
+
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(apiWindowK(config, target.cloud_class), requiredCtx);
+
+    const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, target.cloud_class));
+
+    const series = cumulativeTco(config, {
+      kind: 'flat', monthly_aud: tier.seat_aud_month, price_change: pval(config, 'price_change.subscription_per_year'),
+      extra_monthly_aud: waitCostMonthly(waitH)
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+
+    const tcoHorizon = series.nominal[horizonMonths];
+    const tasks = tasksServed(dm.sq_per_day, growth, horizonMonths, cloudEfficiencyFactor(config, target.cloud_class));
+
+    subOptions.push(optionShell({
+      id: 'sub_' + tierId,
+      family: 'subscription',
+      label: 'Subscription: ' + tier.label,
+      sub_label: 'Cloud class: ' + target.cloud_class + ', allowance not published',
+      data_location: 'provider multi-tenant',
+      sensitivity_tags: ['subscription_consumer'],
+      monthly_avg_aud: tier.seat_aud_month,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      capacity_sq_per_day: cloudTokens.tokens_per_day > ZERO ? capacity.capacity_tokens_per_day / ((dm.sq_in_per_day + dm.sq_out_per_day) / dm.sq_per_day) : null,
+      coverage,
+      per_user_tps_mid: burstTps(config, target.cloud_class),
+      lockout_h_per_day: sim.lockout_h_per_day,
+      wait_hours_per_user_year: waitH,
+      cost_per_task_aud: tcoHorizon / tasks,
+      context_check: ctx,
+      cloud_class: target.cloud_class,
+      efficiency_factor: cloudEfficiencyFactor(config, target.cloud_class),
+      flags: ['allowance_assumed'],
+      passes_filters: coverage >= ONE && ctx.pass,
+      tier
+    }));
+  }
+
+  // ---- API (spec 6.11) ----
+  const apiOptions = [];
+  const apiClasses = inp.show_optional_api ? API_CLASSES_CORE.concat(API_CLASSES_OPTIONAL) : API_CLASSES_CORE;
+  const cachedShare = cachedShareForMode(config, inp.usage_mode);
+  for (const classId of apiClasses) {
+    const info = apiClassInfo(config, classId);
+    const cloudEff = cloudEfficiencyFactor(config, classId === 'previous' ? 'previous' : classId === 'cheap' || classId === 'budget_offshore' ? 'cheap' : 'best');
+    const tokens = tokensPerDay(dm.sq_in_per_day, dm.sq_out_per_day, thinking, verbosity * cloudEff);
+    const daily = apiDailyCostAud(config, {
+      class_id: classId,
+      tokens_in: tokens.tokens_in_per_day,
+      tokens_out: tokens.tokens_out_per_day,
+      cached_share: cachedShare
+    });
+
+    const requiredCtx = requiredContextTokens(
+      dm.agent_tasks_per_day > ZERO ? dm.interactive.tasks.concat(dm.agent.tasks) : dm.interactive.tasks,
+      thinking
+    );
+    const ctx = contextCheck(info.context_k, requiredCtx);
+
+    const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, classId === 'best' || classId === 'premium' ? 'best' : classId === 'previous' ? 'previous' : 'cheap'));
+
+    const series = cumulativeTco(config, {
+      kind: 'metered', daily_aud: daily, growth, price_change: pval(config, 'price_change.api_per_year'),
+      extra_monthly_aud: waitCostMonthly(waitH)
+    }, { months, discount_rate: discount, gst_multiplier: gst });
+
+    const tcoHorizon = series.nominal[horizonMonths];
+    const tasks = tasksServed(dm.sq_per_day, growth, horizonMonths, cloudEff);
+
+    apiOptions.push(optionShell({
+      id: 'api_' + classId,
+      family: 'api',
+      label: 'API: ' + info.label,
+      sub_label: 'Pay per token, cached input at ' + Math.round(cachedShare * HUNDRED) + ' percent',
+      data_location: 'provider multi-tenant',
+      sensitivity_tags: classId === 'budget_offshore' ? ['api_non_enterprise', 'api_budget_offshore'] : ['api_non_enterprise'],
+      monthly_avg_aud: tcoHorizon / horizonMonths,
+      tco_at_horizon: tcoHorizon,
+      tco_at_years: yearSeries(series),
+      tco_series: series,
+      capacity_sq_per_day: null,
+      coverage: ONE,
+      per_user_tps_mid: burstTps(config, classId === 'best' || classId === 'premium' ? 'best' : classId === 'previous' ? 'previous' : 'cheap'),
+      wait_hours_per_user_year: waitH,
+      cost_per_task_aud: tcoHorizon / tasks,
+      context_check: ctx,
+      api_class: info,
+      efficiency_factor: cloudEff,
+      passes_filters: ctx.pass
+    }));
+  }
+
+  // ---- Combine, sensitivity, break-evens, ranking (spec 6.14, 6.15) ----
+  const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions];
+
+  // Task completion reality (spec 2.1): can this option finish a meaningful
+  // task from the user's mix in one sitting? A cheap option that cannot is
+  // not a plan, it is a waiting room.
+  // Agentic mode: one task is the whole step sequence (300k in, 16k out),
+  // though the context window only ever holds one step (fit checks, spec 8).
+  const interactiveBig = inp.usage_mode === 'agentic'
+    ? { label: 'Agentic task', input_tokens: dm.interactive.sq_in, output_tokens: dm.interactive.sq_out }
+    : representativeTask(dm.interactive.tasks);
+  const bigTask = dm.agent_tasks_per_day > ZERO
+    ? { label: 'Agent task', input_tokens: dm.agent.sq_in, output_tokens: dm.agent.sq_out }
+    : interactiveBig;
+  for (const o of options) {
+    const isComputeBound = o.family === 'local' || o.family === 'rental';
+    const genTps = isComputeBound ? o.speed.decode_tps.mid : o.per_user_tps_mid;
+    const ttftS = isComputeBound ? bigTask.input_tokens / o.speed.prefill_tps.mid : ttftSeconds(config);
+    const allowance = o.family === 'subscription'
+      ? allowancePerWindow(config, o.tier.id, o.cloud_class)
+      : null;
+    o.big_task_label = bigTask.label;
+    o.task_check = taskCompletion(config, {
+      task_in: bigTask.input_tokens,
+      task_out: bigTask.output_tokens,
+      thinking_mult: thinking,
+      efficiency: o.efficiency_factor,
+      gen_tps: genTps,
+      ttft_s: ttftS,
+      allowance_per_window: allowance,
+      window_h: o.family === 'subscription' ? pval(config, 'subscriptions.window_h') : null
+    });
+    o.task_verdict = taskVerdict(o.task_check);
+    // A task completed needs to be served AND finished: coverage divides in.
+    o.cost_per_completed_task_aud = o.coverage > ZERO && o.cost_per_task_aud != null
+      ? o.cost_per_task_aud / o.coverage
+      : null;
+    if (!o.task_check.fits_session) o.passes_filters = false;
+  }
+
+  for (const o of options) {
+    o.sensitivity = applySensitivityRules(config, inp.data_sensitivity, o);
+  }
+  if (localBest) {
+    for (const o of options) {
+      if (o === localBest) continue;
+      o.break_even_vs_local = breakEvenMonth(o.tco_series, localBest.tco_series);
+      if (o.family === 'local') {
+        o.roi_at_horizon = roiAgainstLocal(o, localBest);
+      }
+    }
+  }
+
+  const ranked = rankOptions(options);
+  const winner = ranked.winner;
+  const runnerUp = ranked.runner_up;
+  if (winner && runnerUp) {
+    winner.break_even_vs_runner_up = breakEvenMonth(winner.tco_series, runnerUp.tco_series);
+  }
+
+  const sensitivity = (winner && !inp._skip_robustness)
+    ? sensitivityAnalysis(config, {
+        ...inp,
+        _base_winner_id: winner.id,
+        _base_gap: runnerUp ? winner.tco_at_horizon - runnerUp.tco_at_horizon : null
+      }, SENSITIVITY_PARAMS, compute)
+    : { robust: true, flips: [], rows: [] };
+
+  let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
+  if (winner && winner.task_verdict) {
+    text += ' Biggest task (' + winner.big_task_label + '): ' + winner.task_verdict;
+  }
+
+  return {
+    inputs_used: inp,
+    demand: {
+      ...dm,
+      thinking_multiplier: thinking,
+      tokens_cloud_per_day: cloudTokens.tokens_per_day,
+      busy_hours_per_day: localBest ? (localBest.utilisation * poweredH) : null
+    },
+    options,
+    recommendation: {
+      winner,
+      runner_up: runnerUp,
+      passing_count: ranked.passing_count,
+      robustness: { robust: sensitivity.robust, flips: sensitivity.flips },
+      text
+    },
+    tornado: sensitivity.rows,
+    hardware_card: localBest ? hardwareCard(localBest, config, inp) : null,
+    explorer: explorerPick,
+    explorer_note: explorerNote,
+    value_of_time_aud_h: vot,
+    meta: { months, horizon_months: horizonMonths, fx, pue, tariff_id: tariff.id, gst_multiplier: gst }
+  };
+}
+
+function yearSeries(series) {
+  const out = [];
+  for (let y = ONE; y <= HORIZON_YEARS_MAX; y++) out.push(tcoAtYear(series, y));
+  return out;
+}
+
+function roiAgainstLocal(localOption, localBest) {
+  const saving = localBest.tco_series.nominal[localBest.tco_series.months] - localOption.tco_series.nominal[localOption.tco_series.months];
+  if (!(localOption.upfront_aud > ZERO)) return null;
+  return saving / localOption.upfront_aud * HUNDRED;
+}
+
+function searchMemory(config, model, inp) {
+  return modelMemory(config, { total_params_b: model.total_b, bits_per_weight: inp.bits_per_weight, context_k: inp.context_k, streams: ONE });
+}
+
+function apiWindowK(config, cloud_class) {
+  const info = apiClassInfo(config, cloud_class);
+  return info.context_k;
+}
+
+export function hardwareCard(localOption, config, inp) {
+  const cand = localOption.candidate;
+  const concurrency = Math.max(ONE, inp.parallel_agents);
+  const gain = batchGain(config, concurrency);
+  return {
+    platform: cand.platform_label,
+    gpu: cand.card_ref ? cand.card_ref + (cand.n_gpu > ONE ? ' x ' + cand.n_gpu : '') : 'none',
+    band: cand.band_label,
+    placement: cand.placement,
+    ram_gb: cand.ram_gb,
+    ram_type: cand.ram_type,
+    price_breakdown: cand.price,
+    memory: cand.memory,
+    decode_tps: cand.speed.decode_tps,
+    prefill_tps: cand.speed.prefill_tps,
+    gpu_share: cand.speed.gpu_share,
+    batching: { concurrency, gain, aggregate_tps_mid: cand.speed.decode_tps.mid * gain },
+    capability: localOption.quality_target,
+    efficiency_factor: localOption.efficiency_factor,
+    load_w: cand.watts.load_w,
+    idle_w: cand.watts.idle_w,
+    market: cand.market,
+    boxes: ONE
+  };
+}
