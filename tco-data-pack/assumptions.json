@@ -1304,6 +1304,105 @@
       "source": "docs/decisions.md D19",
       "source_date": "2026-09-26",
       "note": "Max wall-clock time for one interactive task (generation plus any mid-task reset waiting) before the user perceives the option as unusable for real work. Past this, the task is not completable in a sitting."
+    },
+    "tasks.success_same": {
+      "label": "Success rate when quality meets the task",
+      "value": 0.95,
+      "low": 0.95,
+      "high": 0.95,
+      "unit": "share",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Reference success rate; retries scale attempts."
+    },
+    "tasks.success_gap1": {
+      "label": "Success rate one quality level below",
+      "value": 0.6,
+      "low": 0.4,
+      "high": 0.8,
+      "unit": "share",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Banded for the tornado."
+    },
+    "tasks.success_gap2": {
+      "label": "Success rate two quality levels below",
+      "value": 0.25,
+      "low": 0.1,
+      "high": 0.4,
+      "unit": "share",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Banded for the tornado."
+    },
+    "tasks.success_gap3": {
+      "label": "Success rate three or more levels below",
+      "value": 0.05,
+      "low": 0.05,
+      "high": 0.05,
+      "unit": "share",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Below p_min, so such tasks are No regardless."
+    },
+    "tasks.p_min": {
+      "label": "Minimum usable success rate",
+      "value": 0.3,
+      "low": 0.2,
+      "high": 0.5,
+      "unit": "share",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Below this the task gate fails. Banded for the tornado."
+    },
+    "tasks.agent_tolerance_min": {
+      "label": "Session tolerance for agent tasks",
+      "value": 120,
+      "low": 60,
+      "high": 240,
+      "unit": "minutes",
+      "status": "assumed",
+      "source": "spec 11.10a",
+      "source_date": "2026-09-26",
+      "note": "Ignored when the preset has unattended hours: nobody watches an overnight run."
+    },
+    "tasks.handoff_min": {
+      "label": "Hand-off time per topped-up task",
+      "value": 2,
+      "low": 1,
+      "high": 5,
+      "unit": "minutes",
+      "status": "assumed",
+      "source": "spec 6.11a",
+      "source_date": "2026-09-26",
+      "note": "Moving a task to the top-up service."
+    },
+    "tasks.local_ttft_s": {
+      "label": "Local time to first token",
+      "value": 0.5,
+      "low": 0.2,
+      "high": 1.0,
+      "unit": "seconds",
+      "status": "assumed",
+      "source": "spec 2.8 task time formula",
+      "source_date": "2026-09-26",
+      "note": "Added to the prefill time per step."
+    },
+    "subscriptions.cache_weight": {
+      "label": "Cached input weight against subscription allowance",
+      "value": 0.1,
+      "low": 0.0,
+      "high": 0.5,
+      "unit": "share of full price units",
+      "status": "assumed",
+      "source": "spec 2.8 and 11.7",
+      "source_date": "2026-09-26",
+      "note": "Agent frameworks reuse context; providers meter cached input cheaply. Banded for the tornado."
     }
   },
   "platforms": [
@@ -1717,7 +1816,10 @@
       "source": "spec 11.7",
       "source_date": "2026-09-25",
       "note": "Allowance assumed and does NOT take the model-class multiplier: free tiers meter aggressively whatever model they serve. With the class multiplier applied, Free absorbed a whole Typical user's day, which is not how free tiers behave.",
-      "ignore_class_multiplier": true
+      "ignore_class_multiplier": true,
+      "context_k": 32,
+      "agent_tools": false,
+      "quality_level": "high"
     },
     {
       "id": "base",
@@ -1728,7 +1830,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Plus row)",
       "source_date": "2026-08-31",
-      "note": "Multiplier 1 by definition."
+      "note": "Multiplier 1 by definition.",
+      "agent_tools": true,
+      "context_from_class": true
     },
     {
       "id": "pro",
@@ -1739,7 +1843,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_subscription_pricing.csv (Claude Max row, the pack's 5x tier)",
       "source_date": "2026-08-31",
-      "note": "Price estimated, multiplier from the tier definition."
+      "note": "Price estimated, multiplier from the tier definition.",
+      "agent_tools": true,
+      "context_from_class": true
     },
     {
       "id": "max",
@@ -1750,7 +1856,9 @@
       "status": "assumed",
       "source": "spec 11.7",
       "source_date": "2026-09-25",
-      "note": "Missing from the pack (spec 15 item 5). Price assumed at 2x Pro."
+      "note": "Missing from the pack (spec 15 item 5). Price assumed at 2x Pro.",
+      "agent_tools": true,
+      "context_from_class": true
     },
     {
       "id": "business",
@@ -1761,7 +1869,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Team row); multiplier assumed",
       "source_date": "2026-08-31",
-      "note": "Price estimated, multiplier assumed."
+      "note": "Price estimated, multiplier assumed.",
+      "agent_tools": true,
+      "context_from_class": true
     },
     {
       "id": "enterprise",
@@ -1774,7 +1884,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_subscription_pricing.csv (ChatGPT Enterprise row); multiplier assumed",
       "source_date": "2026-08-31",
-      "note": "Negotiated. Sensitivity band 77 to 123 AUD."
+      "note": "Negotiated. Sensitivity band 77 to 123 AUD.",
+      "agent_tools": true,
+      "context_from_class": true
     }
   ],
   "api_classes": [
@@ -1787,7 +1899,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_api_pricing.csv",
       "source_date": "2026-08-31",
-      "note": "Mean of frontier rows. Verify against provider pricing pages."
+      "note": "Mean of frontier rows. Verify against provider pricing pages.",
+      "quality_level": "frontier",
+      "may_train": false
     },
     {
       "id": "previous",
@@ -1798,7 +1912,9 @@
       "status": "assumed",
       "source": "spec 11.8",
       "source_date": "2026-09-25",
-      "note": "One generation back at 0.6 of Best."
+      "note": "One generation back at 0.6 of Best.",
+      "quality_level": "high",
+      "may_train": false
     },
     {
       "id": "cheap",
@@ -1809,7 +1925,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_api_pricing.csv",
       "source_date": "2026-08-31",
-      "note": "Mean of small rows."
+      "note": "Mean of small rows.",
+      "quality_level": "good",
+      "may_train": false
     },
     {
       "id": "premium",
@@ -1820,7 +1938,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_api_pricing.csv",
       "source_date": "2026-08-31",
-      "note": "Verify; premium-tier pricing has moved (spec 15 item 4). Optional row."
+      "note": "Verify; premium-tier pricing has moved (spec 15 item 4). Optional row.",
+      "quality_level": "frontier",
+      "may_train": false
     },
     {
       "id": "budget_offshore",
@@ -1831,7 +1951,9 @@
       "status": "estimated",
       "source": "tco-data-pack cloud_api_pricing.csv",
       "source_date": "2026-08-31",
-      "note": "Data sovereignty considerations differ. Optional row, sensitivity flag."
+      "note": "Data sovereignty considerations differ. Optional row, sensitivity flag.",
+      "quality_level": "high",
+      "may_train": false
     }
   ],
   "quality_targets": [
@@ -2270,5 +2392,162 @@
       "source_date": "2026-09-25",
       "note": "Scenario preset for the sensitivity story, not a prediction."
     }
-  ]
+  ],
+  "task_types": [
+    {
+      "id": "quick_question",
+      "label": "Quick Q&A",
+      "steps": 1,
+      "input_per_step": 500,
+      "output_per_step": 500,
+      "cacheable_share": 0.0,
+      "context_need_k": null,
+      "quality_needed": "basic",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11; tokens from workload_profiles.csv",
+      "source_date": "2026-09-26",
+      "note": ""
+    },
+    {
+      "id": "document_summary",
+      "label": "Document summary",
+      "steps": 1,
+      "input_per_step": 6000,
+      "output_per_step": 800,
+      "cacheable_share": 0.0,
+      "context_need_k": null,
+      "quality_needed": "good",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11; tokens from workload_profiles.csv",
+      "source_date": "2026-09-26",
+      "note": ""
+    },
+    {
+      "id": "writing_drafting",
+      "label": "Writing / drafting",
+      "steps": 1,
+      "input_per_step": 1000,
+      "output_per_step": 1200,
+      "cacheable_share": 0.0,
+      "context_need_k": null,
+      "quality_needed": "good",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11; tokens from workload_profiles.csv",
+      "source_date": "2026-09-26",
+      "note": ""
+    },
+    {
+      "id": "code_data_assist",
+      "label": "Coding assistance",
+      "steps": 1,
+      "input_per_step": 2000,
+      "output_per_step": 1500,
+      "cacheable_share": 0.0,
+      "context_need_k": null,
+      "quality_needed": "high",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11; tokens from workload_profiles.csv",
+      "source_date": "2026-09-26",
+      "note": ""
+    },
+    {
+      "id": "analysis_rag",
+      "label": "Analysis / RAG",
+      "steps": 1,
+      "input_per_step": 10000,
+      "output_per_step": 1000,
+      "cacheable_share": 0.0,
+      "context_need_k": null,
+      "quality_needed": "high",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11; tokens from workload_profiles.csv",
+      "source_date": "2026-09-26",
+      "note": ""
+    },
+    {
+      "id": "agentic_task",
+      "label": "Agentic task",
+      "steps": 20,
+      "input_per_step": 15000,
+      "output_per_step": 800,
+      "cacheable_share": 0.7,
+      "context_need_k": null,
+      "quality_needed": "high",
+      "needs_agent_tools": true,
+      "status": "assumed",
+      "source": "spec 11.11 and 4.4",
+      "source_date": "2026-09-26",
+      "note": "Context need is per step: about 16k, not the 300k weekly total."
+    },
+    {
+      "id": "hard_problem",
+      "label": "Hard problem",
+      "steps": 10,
+      "input_per_step": 20000,
+      "output_per_step": 2000,
+      "cacheable_share": 0.5,
+      "context_need_k": null,
+      "quality_needed": "frontier",
+      "needs_agent_tools": false,
+      "status": "assumed",
+      "source": "spec 11.11",
+      "source_date": "2026-09-26",
+      "note": "Optional task with share 0 in every mix; enable via Use my own week."
+    }
+  ],
+  "request_plans": [
+    {
+      "id": "broker_free",
+      "label": "Free models via a broker",
+      "requests_per_day": 50,
+      "requests_per_min": 20,
+      "upfront_usd": 0,
+      "quality_level": "high",
+      "context_k": 128,
+      "agent_tools": true,
+      "reliability": 0.7,
+      "may_train": true,
+      "gen_tps": 40,
+      "ttft_s": 4,
+      "status": "assumed",
+      "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
+      "source_date": "2026-09-26",
+      "note": "Reliability and quality assumed. Some hosts may train on prompts."
+    },
+    {
+      "id": "broker_credit",
+      "label": "Broker free, after USD 10 credit",
+      "requests_per_day": 1000,
+      "requests_per_min": 20,
+      "upfront_usd": 10,
+      "quality_level": "high",
+      "context_k": 128,
+      "agent_tools": true,
+      "reliability": 0.7,
+      "may_train": true,
+      "gen_tps": 40,
+      "ttft_s": 4,
+      "status": "assumed",
+      "source": "limits sourced: OpenRouter documentation, openrouter.ai/docs (limits)",
+      "source_date": "2026-09-26",
+      "note": "One-off credit purchase as the upfront cost. Reliability and quality assumed."
+    }
+  ],
+  "rules": {
+    "top_up": true,
+    "exclude_may_train": false,
+    "status": "assumed",
+    "source": "spec 6.11a, 2.8 and CR-001 item 1",
+    "source_date": "2026-09-26",
+    "note": "Toggles in the simple view; top-up makes every option price the same completed week."
+  },
+  "features": {
+    "org_tabs": false,
+    "note": "Small business, Enterprise and Compare sizes deferred to v2 (spec 1.3)."
+  }
 }

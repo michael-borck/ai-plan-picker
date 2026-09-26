@@ -350,6 +350,10 @@ const defaults = {
   cloud_efficiency_factors: assumptions.cloud_efficiency_factors,
   sensitivity_rules: assumptions.sensitivity_rules,
   presets: assumptions.presets,
+  task_types: assumptions.task_types,
+  request_plans: assumptions.request_plans,
+  rules: assumptions.rules,
+  features: assumptions.features,
   defaults_inputs: assumptions.defaults_inputs,
   disclaimer: assumptions.disclaimer,
   tables: {

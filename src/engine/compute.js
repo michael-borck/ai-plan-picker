@@ -29,7 +29,11 @@ const SENSITIVITY_PARAMS = [
   'demand.growth_per_year',
   'api.previous_ratio',
   'price_change.api_per_year',
-  'speed.eta_cpu'
+  'speed.eta_cpu',
+  'tasks.success_gap1',
+  'tasks.success_gap2',
+  'tasks.p_min',
+  'subscriptions.cache_weight'
 ];
 
 const SUB_TIERS_CONSUMER = ['free', 'base', 'pro', 'max'];
