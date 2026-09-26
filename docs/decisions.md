@@ -298,3 +298,16 @@ expectation, per CR section 3 item 9 and section 4.
 - **Item 12 approximation**: the pay-off multiple compares the best eligible
   local option with the best paid non-local option at today's prices
   (upfront plus monthly times horizon), no growth or discounting. Indicative.
+
+### Chart ribbon (spec 7 chart 1, completed Phase D leftover)
+
+The low/high ribbon on the leading two cumulative TCO lines is built from the
+one-at-a-time sensitivity swings the recommendation already computes, so it
+costs no extra full runs: for each month the envelope takes the minimum and
+maximum of the winner's and runner-up's cumulative TCO across every swing,
+seeded with their base series, so the band brackets the lines it belongs to
+by construction. It is computed only when the view asks for it
+(`with_bands`, advanced view) and drawn as a translucent fill between two
+datasets in cumulative mode; the payback view has no band. An earlier
+all-parameters-together approach was discarded because the envelope did not
+bracket the base line under non-linear combinations.

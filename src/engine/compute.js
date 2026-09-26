@@ -17,7 +17,7 @@ import { addMeteredTopup, addFlatMonthly } from './timeSeries.js';
 import { apiClassInfo, cachedShareForMode, apiDailyCostAud } from './api.js';
 import { cumulativeTco, tcoAtYear, breakEvenMonth, tasksServed } from './timeSeries.js';
 import { requiredContextTokens, contextCheck } from './fitChecks.js';
-import { applySensitivityRules, rankOptions, sensitivityAnalysis, formatRecommendation } from './recommend.js';
+import { applySensitivityRules, rankOptions, sensitivityAnalysis, bandEnvelope, formatRecommendation } from './recommend.js';
 import { batchGain } from './speed.js';
 import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_MONTH, WEEKS_PER_YEAR, ZERO, ONE, TWO, SUM_EPSILON } from './units.js';
 
@@ -673,9 +673,28 @@ export function compute(config, inputs) {
     ? sensitivityAnalysis(config, {
         ...inp,
         _base_winner_id: winner.id,
-        _base_gap: runnerUp ? winner.tco_at_horizon - runnerUp.tco_at_horizon : null
+        _base_gap: runnerUp ? winner.tco_at_horizon - runnerUp.tco_at_horizon : null,
+        _band_option_ids: [winner.id].concat(runnerUp ? [runnerUp.id] : []),
+        _band_base_series: (() => {
+          const m = {};
+          for (const o of [winner, runnerUp]) if (o) m[o.id] = o.tco_series;
+          return m;
+        })()
       }, SENSITIVITY_PARAMS, compute)
-    : { robust: true, flips: [], rows: [] };
+    : { robust: true, flips: [], rows: [], envelopes: {} };
+
+  // Chart 1 ribbon: envelope from the one-at-a-time sensitivity swings,
+  // seeded with the winner and runner-up base series. Free: the sweep runs
+  // anyway. Only when asked for (advanced view).
+  let band = null;
+  if (inp.with_bands && winner && !inp._skip_robustness) {
+    const baseSeries = {};
+    for (const o of [winner, runnerUp]) {
+      if (o) baseSeries[o.id] = o.tco_series;
+    }
+    band = { options: sensitivity.envelopes };
+    void baseSeries;
+  }
 
   let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
   if (winner && winner.task_cells) {
@@ -728,6 +747,7 @@ export function compute(config, inputs) {
       text
     },
     tornado: sensitivity.rows,
+    band,
     hardware_card: localBest ? hardwareCard(localBest, config, inp) : null,
     explorer: explorerPick,
     explorer_note: explorerNote,

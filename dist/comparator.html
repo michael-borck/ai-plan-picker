@@ -6480,6 +6480,35 @@ function rankOptions(options) {
   return { winner: sorted[0] || null, runner_up: sorted[1] || null, passing_count: passing.length };
 }
 
+// Banded envelope for the leading options (spec 7 chart 1): every listed
+// parameter swung low together, then high together, so the chart can shade
+// where the cumulative TCO of the winner and runner-up can plausibly land.
+// Two extra computes, not one per parameter per end.
+function bandEnvelope(config, inputs, param_ids, computeFn, option_ids) {
+  const run = end => {
+    let cfg = config;
+    for (const id of param_ids) {
+      const rec = config.parameters[id];
+      if (rec && rec.low !== rec.high) cfg = setParam(cfg, id, rec[end]);
+    }
+    return computeFn(cfg, { ...inputs, _skip_robustness: true });
+  };
+  const lowRun = run('low');
+  const highRun = run('high');
+  const pick = (result, id) => {
+    const o = result.options.find(x => x.id === id);
+    return o ? o.tco_series.nominal : null;
+  };
+  const out = {};
+  for (const id of option_ids) {
+    const low = pick(lowRun, id);
+    const high = pick(highRun, id);
+    if (!low || !high) continue;
+    out[id] = { low, high };
+  }
+  return out;
+}
+
 // Sensitivity: swing each listed banded parameter to low and high one at a
 // time and recompute once per end. Produces both the robustness verdict
 // (spec 6.15: does the winner ever change?) and the tornado data (spec 7
@@ -6488,6 +6517,27 @@ function sensitivityAnalysis(config, inputs, param_ids, computeFn) {
   const rows = [];
   const flips = [];
   const baseWinner = inputs._base_winner_id;
+  // Chart ribbon tracker (spec 7 chart 1): per-month min/max of the
+  // cumulative TCO for the leading options across every single-parameter
+  // swing, seeded with their base series so the band brackets the lines.
+  const bandOptionIds = inputs._band_option_ids || [];
+  const bandBase = inputs._band_base_series || {};
+  const envelope = {};
+  for (const id of bandOptionIds) {
+    if (bandBase[id]) envelope[id] = { low: bandBase[id].nominal.slice(), high: bandBase[id].nominal.slice() };
+  }
+  const absorb = result => {
+    for (const id of bandOptionIds) {
+      if (!envelope[id]) continue;
+      const o = result.options.find(x => x.id === id);
+      if (!o) continue;
+      const nom = o.tco_series.nominal;
+      for (let m = 0; m < nom.length; m++) {
+        if (nom[m] < envelope[id].low[m]) envelope[id].low[m] = nom[m];
+        if (nom[m] > envelope[id].high[m]) envelope[id].high[m] = nom[m];
+      }
+    }
+  };
   for (const id of param_ids) {
     const rec = config.parameters[id];
     if (!rec || rec.low === rec.high) continue;
@@ -6513,11 +6563,12 @@ function sensitivityAnalysis(config, inputs, param_ids, computeFn) {
         ? rec2.winner.tco_at_horizon - rec2.runner_up.tco_at_horizon
         : null;
       row[end + '_gap'] = gap;
+      if (result && result.options) absorb(result);
     }
     rows.push(row);
   }
   rows.sort((a, b) => swingOf(b) - swingOf(a));
-  return { robust: flips.length === 0, flips, rows };
+  return { robust: flips.length === 0, flips, rows, envelopes: envelope };
 }
 
 function swingOf(row) {
@@ -7379,9 +7430,28 @@ function compute(config, inputs) {
     ? sensitivityAnalysis(config, {
         ...inp,
         _base_winner_id: winner.id,
-        _base_gap: runnerUp ? winner.tco_at_horizon - runnerUp.tco_at_horizon : null
+        _base_gap: runnerUp ? winner.tco_at_horizon - runnerUp.tco_at_horizon : null,
+        _band_option_ids: [winner.id].concat(runnerUp ? [runnerUp.id] : []),
+        _band_base_series: (() => {
+          const m = {};
+          for (const o of [winner, runnerUp]) if (o) m[o.id] = o.tco_series;
+          return m;
+        })()
       }, SENSITIVITY_PARAMS, compute)
-    : { robust: true, flips: [], rows: [] };
+    : { robust: true, flips: [], rows: [], envelopes: {} };
+
+  // Chart 1 ribbon: envelope from the one-at-a-time sensitivity swings,
+  // seeded with the winner and runner-up base series. Free: the sweep runs
+  // anyway. Only when asked for (advanced view).
+  let band = null;
+  if (inp.with_bands && winner && !inp._skip_robustness) {
+    const baseSeries = {};
+    for (const o of [winner, runnerUp]) {
+      if (o) baseSeries[o.id] = o.tco_series;
+    }
+    band = { options: sensitivity.envelopes };
+    void baseSeries;
+  }
 
   let text = formatRecommendation(config, inp, { winner, runner_up: runnerUp, robustness: { robust: sensitivity.robust, flips: sensitivity.flips } });
   if (winner && winner.task_cells) {
@@ -7434,6 +7504,7 @@ function compute(config, inputs) {
       text
     },
     tornado: sensitivity.rows,
+    band,
     hardware_card: localBest ? hardwareCard(localBest, config, inp) : null,
     explorer: explorerPick,
     explorer_note: explorerNote,
@@ -8150,15 +8221,18 @@ function tcoChartRender(canvasId, result, globals) {
   let colour = 0;
   const winnerId = result.recommendation.winner ? result.recommendation.winner.id : null;
 
+  const band = mode !== 'payback' && result.band ? result.band.options : null;
+
   for (const o of result.options) {
     if (mode === 'payback' && ref && o.id === ref.id) continue;
     const data = mode === 'payback' && ref
       ? o.tco_series.nominal.map((v, i) => v - ref.tco_series.nominal[i])
       : o.tco_series.nominal;
+    const lineColour = palette[colour % palette.length];
     datasets.push({
       label: o.label + (o.sensitivity.vetoed ? ' (vetoed)' : '') + (o.id === winnerId ? ' (winner)' : ''),
       data,
-      borderColor: palette[colour % palette.length],
+      borderColor: lineColour,
       backgroundColor: 'transparent',
       borderDash: o.id === 'api_best' ? [6, 4] : [],
       borderWidth: o.id === winnerId ? 3 : 1.4,
@@ -8168,6 +8242,33 @@ function tcoChartRender(canvasId, result, globals) {
       _option: o
     });
     colour++;
+    // Shaded band (spec 7 chart 1): low/high envelope from the sensitivity
+    // swings, drawn for the winner and the runner-up in cumulative view.
+    const runnerId = result.recommendation.runner_up ? result.recommendation.runner_up.id : null;
+    const env = mode !== 'payback' && band && (o.id === winnerId || o.id === runnerId) ? band[o.id] : null;
+    if (env) {
+      datasets.push({
+        label: 'band low: ' + o.label,
+        data: env.low,
+        borderColor: 'transparent',
+        backgroundColor: lineColour + '22',
+        borderWidth: 0,
+        pointRadius: 0,
+        fill: '+1',
+        hidden: o.sensitivity.vetoed,
+        _band: true
+      });
+      datasets.push({
+        label: 'band high: ' + o.label,
+        data: env.high,
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        pointRadius: 0,
+        hidden: o.sensitivity.vetoed,
+        _band: true
+      });
+    }
   }
 
   const isPayback = mode === 'payback';
@@ -9248,9 +9349,13 @@ function recalculate() {
   readRules(CONFIG);
   readOwnWeek(CONFIG);
   readExplorer(CONFIG);
+
   const saved = inputsFor('single_user', CONFIG);
   const engineIn = engineInputs('single_user', CONFIG);
   engineIn.explorer = saved.explorer;
+  // The ribbon reuses the sensitivity sweep, so it costs nothing extra, but
+  // only the advanced view shows the hero chart, so only it asks.
+  engineIn.with_bands = state.view !== 'simple';
   const result = compute(CONFIG, engineIn);
   renderAll(CONFIG, result);
   renderChartModeControls(result);

@@ -43,6 +43,35 @@ export function rankOptions(options) {
   return { winner: sorted[0] || null, runner_up: sorted[1] || null, passing_count: passing.length };
 }
 
+// Banded envelope for the leading options (spec 7 chart 1): every listed
+// parameter swung low together, then high together, so the chart can shade
+// where the cumulative TCO of the winner and runner-up can plausibly land.
+// Two extra computes, not one per parameter per end.
+export function bandEnvelope(config, inputs, param_ids, computeFn, option_ids) {
+  const run = end => {
+    let cfg = config;
+    for (const id of param_ids) {
+      const rec = config.parameters[id];
+      if (rec && rec.low !== rec.high) cfg = setParam(cfg, id, rec[end]);
+    }
+    return computeFn(cfg, { ...inputs, _skip_robustness: true });
+  };
+  const lowRun = run('low');
+  const highRun = run('high');
+  const pick = (result, id) => {
+    const o = result.options.find(x => x.id === id);
+    return o ? o.tco_series.nominal : null;
+  };
+  const out = {};
+  for (const id of option_ids) {
+    const low = pick(lowRun, id);
+    const high = pick(highRun, id);
+    if (!low || !high) continue;
+    out[id] = { low, high };
+  }
+  return out;
+}
+
 // Sensitivity: swing each listed banded parameter to low and high one at a
 // time and recompute once per end. Produces both the robustness verdict
 // (spec 6.15: does the winner ever change?) and the tornado data (spec 7
@@ -51,6 +80,27 @@ export function sensitivityAnalysis(config, inputs, param_ids, computeFn) {
   const rows = [];
   const flips = [];
   const baseWinner = inputs._base_winner_id;
+  // Chart ribbon tracker (spec 7 chart 1): per-month min/max of the
+  // cumulative TCO for the leading options across every single-parameter
+  // swing, seeded with their base series so the band brackets the lines.
+  const bandOptionIds = inputs._band_option_ids || [];
+  const bandBase = inputs._band_base_series || {};
+  const envelope = {};
+  for (const id of bandOptionIds) {
+    if (bandBase[id]) envelope[id] = { low: bandBase[id].nominal.slice(), high: bandBase[id].nominal.slice() };
+  }
+  const absorb = result => {
+    for (const id of bandOptionIds) {
+      if (!envelope[id]) continue;
+      const o = result.options.find(x => x.id === id);
+      if (!o) continue;
+      const nom = o.tco_series.nominal;
+      for (let m = 0; m < nom.length; m++) {
+        if (nom[m] < envelope[id].low[m]) envelope[id].low[m] = nom[m];
+        if (nom[m] > envelope[id].high[m]) envelope[id].high[m] = nom[m];
+      }
+    }
+  };
   for (const id of param_ids) {
     const rec = config.parameters[id];
     if (!rec || rec.low === rec.high) continue;
@@ -76,11 +126,12 @@ export function sensitivityAnalysis(config, inputs, param_ids, computeFn) {
         ? rec2.winner.tco_at_horizon - rec2.runner_up.tco_at_horizon
         : null;
       row[end + '_gap'] = gap;
+      if (result && result.options) absorb(result);
     }
     rows.push(row);
   }
   rows.sort((a, b) => swingOf(b) - swingOf(a));
-  return { robust: flips.length === 0, flips, rows };
+  return { robust: flips.length === 0, flips, rows, envelopes: envelope };
 }
 
 function swingOf(row) {

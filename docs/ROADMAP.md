@@ -41,8 +41,8 @@ one commit per work item, tags on spec versions.
 
 - [x] Spec 6.4a full ladders (dense 1 to 123, MoE 16/3 to 235/22) and the
       computed four-suggestion no-fit message
-- [ ] Chart 1 low/high ribbon on the leading two lines (deferred: needs the
-      engine to emit low/high TCO series; moved to the v2 backlog)
+- [x] Chart 1 low/high ribbon on the leading two lines (envelope from the
+      sensitivity swings, advanced view only)
 - [x] Cost per completed task chart with log toggle (spec 7 chart 6)
 - [x] Features checklist display (spec 8)
 - [x] `?test` page mode running a compact acceptance check (spec 14)
@@ -50,8 +50,6 @@ one commit per work item, tags on spec versions.
 - [x] Teaching mode formula lines per result
 
 ## Phase E: v2 backlog (deferred, do not start without a CR)
-
-- [ ] Chart 1 low/high TCO ribbon (requires banded series from the engine)
 
 - [ ] Small business, Enterprise and Compare sizes tabs (`features.org_tabs`)
 - [ ] Combinations routing matrix (spec 6.12) and its presets

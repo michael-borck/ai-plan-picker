@@ -46,15 +46,18 @@ function tcoChartRender(canvasId, result, globals) {
   let colour = 0;
   const winnerId = result.recommendation.winner ? result.recommendation.winner.id : null;
 
+  const band = mode !== 'payback' && result.band ? result.band.options : null;
+
   for (const o of result.options) {
     if (mode === 'payback' && ref && o.id === ref.id) continue;
     const data = mode === 'payback' && ref
       ? o.tco_series.nominal.map((v, i) => v - ref.tco_series.nominal[i])
       : o.tco_series.nominal;
+    const lineColour = palette[colour % palette.length];
     datasets.push({
       label: o.label + (o.sensitivity.vetoed ? ' (vetoed)' : '') + (o.id === winnerId ? ' (winner)' : ''),
       data,
-      borderColor: palette[colour % palette.length],
+      borderColor: lineColour,
       backgroundColor: 'transparent',
       borderDash: o.id === 'api_best' ? [6, 4] : [],
       borderWidth: o.id === winnerId ? 3 : 1.4,
@@ -64,6 +67,33 @@ function tcoChartRender(canvasId, result, globals) {
       _option: o
     });
     colour++;
+    // Shaded band (spec 7 chart 1): low/high envelope from the sensitivity
+    // swings, drawn for the winner and the runner-up in cumulative view.
+    const runnerId = result.recommendation.runner_up ? result.recommendation.runner_up.id : null;
+    const env = mode !== 'payback' && band && (o.id === winnerId || o.id === runnerId) ? band[o.id] : null;
+    if (env) {
+      datasets.push({
+        label: 'band low: ' + o.label,
+        data: env.low,
+        borderColor: 'transparent',
+        backgroundColor: lineColour + '22',
+        borderWidth: 0,
+        pointRadius: 0,
+        fill: '+1',
+        hidden: o.sensitivity.vetoed,
+        _band: true
+      });
+      datasets.push({
+        label: 'band high: ' + o.label,
+        data: env.high,
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        pointRadius: 0,
+        hidden: o.sensitivity.vetoed,
+        _band: true
+      });
+    }
   }
 
   const isPayback = mode === 'payback';
