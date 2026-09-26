@@ -1405,6 +1405,17 @@
    "source": "spec 2.8 and 11.7",
    "source_date": "2026-09-26",
    "note": "Agent frameworks reuse context; providers meter cached input cheaply. Banded for the tornado."
+  },
+  "explorer.moe_fit_tolerance": {
+   "label": "MoE alternative size tolerance for no-fit suggestions",
+   "value": 0.35,
+   "low": 0.2,
+   "high": 0.5,
+   "unit": "share of dense size",
+   "status": "assumed",
+   "source": "spec 6.4a no-fit message",
+   "source_date": "2026-09-26",
+   "note": "An MoE rung within this share of the dense size counts as similar."
   }
  },
  "platforms": [
@@ -2025,26 +2036,48 @@
   "dense_b": [
    1,
    3,
+   4,
    7,
    8,
+   12,
    14,
+   24,
+   27,
    32,
-   70
+   49,
+   70,
+   123
   ],
   "moe": [
+   {
+    "total_b": 16,
+    "active_b": 3
+   },
    {
     "total_b": 30,
     "active_b": 3
    },
    {
-    "total_b": 120,
+    "total_b": 80,
+    "active_b": 3
+   },
+   {
+    "total_b": 106,
     "active_b": 12
+   },
+   {
+    "total_b": 117,
+    "active_b": 5
+   },
+   {
+    "total_b": 235,
+    "active_b": 22
    }
   ],
   "status": "assumed",
   "source": "docs/decisions.md D7",
   "source_date": "2026-09-25",
-  "note": "Budget-only mode returns a rung from this ladder, never an in-between size."
+  "note": "Spec 6.4a v0.4 ladders. Budget-only mode returns a rung, never an in-between size."
  },
  "usage_presets": [
   {

@@ -43,7 +43,8 @@ test('select: quality target Good maps to dense 32 and MoE 30 candidates', () =>
 
 test('select: Basic target uses the 7 to 14B dense rungs', () => {
   const c = modelCandidatesForTarget(config, 'basic');
-  assert.deepEqual(c.filter(m => !m.moe).map(m => m.total_b).sort((a, b) => a - b), [7, 8, 14]);
+  // The v0.4 ladder adds a 12B rung inside the Basic range (spec 6.4a).
+  assert.deepEqual(c.filter(m => !m.moe).map(m => m.total_b).sort((a, b) => a - b), [7, 8, 12, 14]);
 });
 
 test('select: T11 budget-only returns a ladder rung, never an in-between size', () => {

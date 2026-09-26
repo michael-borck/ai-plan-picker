@@ -33,9 +33,9 @@ one commit per work item, tags on spec versions.
 
 ## Phase C: command line reports
 
-- [ ] `bin/comparator.js` with `--config`, scenario flags, four formats
-- [ ] `--sweep` CSV batch
-- [ ] `tests/cli.test.js`, package.json `bin` field
+- [x] `bin/comparator.js` with `--config`, scenario flags, four formats
+- [x] `--sweep` CSV batch
+- [x] `tests/cli.test.js`, package.json `bin` field
 
 ## Phase D: v1 polish (spec catch-up)
 

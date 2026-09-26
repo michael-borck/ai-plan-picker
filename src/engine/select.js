@@ -5,6 +5,8 @@ import { searchConfigs, cheapestFit } from './configSearch.js';
 import { effectiveSizeB } from './demand.js';
 import { pval } from './params.js';
 import { ZERO } from './units.js';
+
+const ZERO_TPS = ZERO;
 import { ONE } from './units.js';
 
 // Model candidates for a quality target (spec 2.4): ladder rungs inside the
@@ -55,16 +57,54 @@ export function budgetLadder(config, { budget_aud, bits, context_k, min_speed_tp
   return { rung: null, chosen: null, qualifies: false, search: null };
 }
 
-// No-fit suggestions: what would it take to run this model? (spec test T5:
-// "No-fit message with computed alternatives".)
-export function noFitAlternatives(config, { model, bits, context_k, streams, must_be_new, min_speed_tps }) {
+// No-fit suggestions (spec 6.4a): all four are computed, never static text.
+// largest_fit: the biggest ladder rung that fits the budget at any speed;
+// cheapest_fit: the budget that would run the model;
+// best_available_tps: the fastest the budget manages for this model;
+// moe_fit: the same-size MoE rung, cheaper to serve.
+export function noFitAlternatives(config, { model, bits, context_k, streams, must_be_new, min_speed_tps, budget_aud }) {
   const anyFit = cheapestFit(config, { model, bits, context_k, streams, must_be_new });
   const fastFit = searchConfigs(config, { model, bits, context_k, streams, must_be_new, min_speed_tps }).qualifying[0] || null;
+  let largestFit = null;
+  if (budget_aud != null) {
+    const rungs = [];
+    for (const b of config.model_ladder.dense_b) rungs.push({ total_b: b, active_b: b, moe: false });
+    for (const m of config.model_ladder.moe) rungs.push({ total_b: m.total_b, active_b: m.active_b, moe: true });
+    for (const rung of rungs) {
+      const search = searchConfigs(config, { model: rung, bits, context_k, streams, must_be_new, budget_aud });
+      if (search.qualifying.length && (!largestFit || rung.total_b > largestFit.total_b)) largestFit = rung;
+    }
+  }
+  let bestAvailableTps = ZERO_TPS;
+  if (budget_aud != null) {
+    const search = searchConfigs(config, { model, bits, context_k, streams, must_be_new, budget_aud });
+    for (const c of search.qualifying) bestAvailableTps = Math.max(bestAvailableTps, c.speed.decode_tps.mid);
+    for (const c of search.near_misses) {
+      if (c.speed && c.speed.decode_tps) bestAvailableTps = Math.max(bestAvailableTps, c.speed.decode_tps.mid);
+    }
+  }
+  let moeFit = null;
+  if (!model.moe) {
+    const tolerance = pval(config, 'explorer.moe_fit_tolerance');
+    const candidate = config.model_ladder.moe
+      .filter(m => Math.abs(m.total_b - model.total_b) / model.total_b < tolerance)
+      .sort((a, b) => a.total_b - model.total_b)[0] || config.model_ladder.moe[0];
+    const search = searchConfigs(config, {
+      model: { id: 'moe_alt', total_b: candidate.total_b, active_b: candidate.active_b, moe: true },
+      bits, context_k, streams, must_be_new, min_speed_tps
+    });
+    moeFit = search.qualifying[0] || null;
+  }
   return {
     cheapest_fit: anyFit ? { signature: anyFit.signature, price_aud: anyFit.price_aud, placement: anyFit.placement } : null,
-    cheapest_meeting_speed: fastFit ? { signature: fastFit.signature, price_aud: fastFit.price_aud, placement: fastFit.placement } : null
+    cheapest_meeting_speed: fastFit ? { signature: fastFit.signature, price_aud: fastFit.price_aud, placement: fastFit.placement } : null,
+    largest_fit_b: largestFit ? largestFit.total_b : null,
+    best_available_tps: bestAvailableTps,
+    moe_fit: moeFit ? { total_b: moeFit.model ? moeFit.model.total_b : null, price_aud: moeFit.price_aud } : null
   };
 }
+
+
 
 // Resolve the model for the Hardware explorer (spec 4.2):
 // mode 'fixed' uses the given size; mode 'budget_only' takes the largest
