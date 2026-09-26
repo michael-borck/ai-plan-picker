@@ -1,0 +1,231 @@
+// main.js: wiring for the Single user tab. Live recalculation with a 150 ms
+// debounce (spec 9). One engine for every tab; tabs differ only in defaults,
+// visible inputs and chart order. Sub-views: Pick a plan | Hardware explorer.
+
+let CONFIG = null;
+
+const INPUT_DEFS = [
+  { key: 'persona', id: 'in-persona', type: 'select', options: [
+    ['power', 'Power persona (40 SQ/day)'], ['typical', 'Typical persona (15 SQ/day)'], ['light', 'Light persona (5 SQ/day)']
+  ] },
+  { key: 'usage_preset', id: 'in-preset', type: 'select', fromConfig: 'usage_presets' },
+  { key: 'usage_mode', id: 'in-mode', type: 'select', fromConfig: 'usage_modes' },
+  { key: 'parallel_agents', id: 'in-agents', type: 'number', min: 1, max: 8, step: 1 },
+  { key: 'thinking', id: 'in-thinking', type: 'select', options: [
+    ['off', 'Thinking off'], ['low', 'Thinking low (1.5x)'], ['medium', 'Thinking medium (3x)'], ['high', 'Thinking high (6x)']
+  ] },
+  { key: 'quality_target', id: 'in-quality', type: 'select', fromConfig: 'quality_targets', skipId: 'frontier' },
+  { key: 'data_sensitivity', id: 'in-sensitivity', type: 'select', options: [
+    ['public', 'Public'], ['internal', 'Internal'], ['sensitive', 'Sensitive']
+  ] },
+  { key: 'tariff_id', id: 'in-tariff', type: 'select', fromTables: 'tariffs' },
+  { key: 'powered_h_per_day', id: 'in-powered', type: 'number', min: 1, max: 24, step: 0.5 },
+  { key: 'value_of_time_aud_h', id: 'in-vot', type: 'number', min: 0, max: 200, step: 5 },
+  { key: 'paid_help', id: 'in-paidhelp', type: 'checkbox' },
+  { key: 'must_be_new', id: 'in-new', type: 'checkbox' }
+];
+
+function labelled(labelText, input) {
+  const label = document.createElement('label');
+  const name = document.createElement('span');
+  name.textContent = labelText;
+  label.appendChild(name);
+  label.appendChild(input);
+  return label;
+}
+
+function buildInputs(config) {
+  const grid = $('inputs-grid');
+  grid.innerHTML = '';
+  for (const def of INPUT_DEFS) {
+    let input;
+    if (def.type === 'select') {
+      input = document.createElement('select');
+      let opts = null;
+      if (def.options) opts = def.options;
+      else if (def.fromConfig) opts = config[def.fromConfig].map(o => [o.id, o.label]);
+      else if (def.fromTables) opts = config.tables[def.fromTables].map(o => [o.id, o.label]);
+      for (const [value, text] of opts) {
+        if (def.skipId && value === def.skipId) continue;
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = text;
+        input.appendChild(opt);
+      }
+    } else if (def.type === 'checkbox') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+    } else {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.min = def.min;
+      input.max = def.max;
+      input.step = def.step;
+    }
+    input.id = def.id;
+    input.addEventListener('change', onInputChanged);
+    const text = def.key === 'value_of_time_aud_h'
+      ? 'Value of your time (AUD/h, 0 = off)'
+      : def.key.replace(/_/g, ' ').charAt(0).toUpperCase() + def.key.replace(/_/g, ' ').slice(1);
+    if (def.type === 'checkbox') {
+      const label = labelled(text, input);
+      label.className = 'checkbox-line';
+      grid.appendChild(label);
+    } else {
+      grid.appendChild(labelled(text, input));
+    }
+  }
+}
+
+function writeInputs(config) {
+  const saved = inputsFor('single_user', config);
+  for (const def of INPUT_DEFS) {
+    const el = $(def.id);
+    if (!el) continue;
+    if (def.type === 'checkbox') el.checked = !!saved[def.key];
+    else if (saved[def.key] !== undefined) el.value = saved[def.key];
+  }
+  $('g-horizon').value = state.globals.horizon_years;
+  $('g-gst').value = state.globals.gst_display;
+  $('g-teaching').checked = !!state.globals.teaching;
+  document.body.classList.toggle('teaching', !!state.globals.teaching);
+  setView(state.view || 'plan');
+}
+
+function readInputs(config) {
+  const saved = inputsFor('single_user', config);
+  for (const def of INPUT_DEFS) {
+    const el = $(def.id);
+    if (!el) continue;
+    if (def.type === 'checkbox') saved[def.key] = el.checked;
+    else if (def.type === 'number') saved[def.key] = el.value === '' ? undefined : Number(el.value);
+    else saved[def.key] = el.value;
+    if (saved[def.key] === '' || saved[def.key] === undefined) delete saved[def.key];
+  }
+  state.globals.horizon_years = Number($('g-horizon').value);
+  state.globals.gst_display = $('g-gst').value;
+  state.globals.teaching = $('g-teaching').checked;
+  document.body.classList.toggle('teaching', !!state.globals.teaching);
+}
+
+function setView(view) {
+  state.view = view;
+  document.body.classList.toggle('explorer-view', view === 'explorer');
+  const buttons = document.querySelectorAll('.subview button');
+  for (const b of buttons) b.setAttribute('aria-selected', b.dataset.view === view ? 'true' : 'false');
+}
+
+function onViewChanged(evt) {
+  setView(evt.target.dataset.view);
+  recalculate();
+}
+
+let debounceTimer = null;
+function onInputChanged() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(recalculate, 150);
+}
+
+function recalculate() {
+  readInputs(CONFIG);
+  readExplorer(CONFIG);
+  const saved = inputsFor('single_user', CONFIG);
+  const engineIn = engineInputs('single_user', CONFIG);
+  engineIn.explorer = saved.explorer;
+  const result = compute(CONFIG, engineIn);
+  renderAll(CONFIG, result);
+  renderChartModeControls(result);
+  renderExplorer(result);
+  frontierChartRender('frontier-chart', budgetFrontier(CONFIG, {
+    bits: saved.explorer.bits_per_weight,
+    context_k: saved.explorer.context_k,
+    min_speed_tps: saved.explorer.min_speed_tps,
+    must_be_new: saved.explorer.market === 'new',
+    streams: Math.max(1, saved.parallel_agents || 1)
+  }));
+  writeHash();
+  saveLocal();
+  $('status-line').textContent = 'Recalculated. Every figure is an estimate.';
+}
+
+const SIMPLE_INPUTS = [
+  { key: 'usage_preset', id: 'sm-preset', fromConfig: 'usage_presets' },
+  { key: 'usage_mode', id: 'sm-mode', fromConfig: 'usage_modes' },
+  { key: 'persona', id: 'sm-persona', options: [['power', 'Power user (40 tasks/day)'], ['typical', 'Typical (15/day)'], ['light', 'Light (5/day)']] },
+  { key: 'thinking', id: 'sm-thinking', options: [['off', 'Thinking off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] }
+];
+
+function buildSimpleInputs(config) {
+  for (const def of SIMPLE_INPUTS) {
+    const sel = $(def.id);
+    const opts = def.options || config[def.fromConfig].map(o => [o.id, o.label]);
+    for (const [value, text] of opts) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', () => {
+      const saved = inputsFor('single_user', CONFIG);
+      saved[def.key] = sel.value;
+      writeInputs(CONFIG);
+      recalculate();
+    });
+  }
+}
+
+function writeSimpleInputs(config) {
+  const saved = inputsFor('single_user', config);
+  for (const def of SIMPLE_INPUTS) {
+    const sel = $(def.id);
+    if (saved[def.key] !== undefined) sel.value = saved[def.key];
+  }
+}
+
+function initGlobals() {
+  $('view-simple').addEventListener('change', () => {
+    state.simpleView = $('view-simple').checked;
+    document.body.classList.toggle('simple-view', state.simpleView);
+    writeHash();
+  });
+  $('g-horizon').addEventListener('change', onInputChanged);
+  $('g-gst').addEventListener('change', onInputChanged);
+  $('g-teaching').addEventListener('change', onInputChanged);
+  const subButtons = document.querySelectorAll('.subview button');
+  for (const b of subButtons) b.addEventListener('click', onViewChanged);
+  $('profile-option').addEventListener('change', onInputChanged);
+}
+
+function initTabs() {
+  const buttons = document.querySelectorAll('.tabs button');
+  for (const b of buttons) {
+    b.addEventListener('click', () => {
+      if (b.disabled) return;
+      state.activeTab = b.dataset.tab;
+      for (const x of buttons) x.setAttribute('aria-selected', x === b ? 'true' : 'false');
+      writeHash();
+    });
+  }
+  for (const b of buttons) b.setAttribute('aria-selected', b.dataset.tab === state.activeTab ? 'true' : 'false');
+}
+
+function boot() {
+  CONFIG = window.__COMPARE_CONFIG__;
+  CONFIG = loadParams();
+  buildInputs(CONFIG);
+  buildExplorer(CONFIG);
+  buildSimpleInputs(CONFIG);
+  const fromHash = readHash();
+  if (!fromHash) loadLocal();
+  initSettings();
+  initTabs();
+  initGlobals();
+  writeInputs(CONFIG);
+  writeExplorer(CONFIG);
+  writeSimpleInputs(CONFIG);
+  document.body.classList.toggle('simple-view', !!state.simpleView);
+  if ($('view-simple')) $('view-simple').checked = !!state.simpleView;
+  recalculate();
+}
+
+boot();
