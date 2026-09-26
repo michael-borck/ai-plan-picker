@@ -258,3 +258,43 @@ Engine side is covered by tests/settings.test.js (nine tests), including
 Decisions made while implementing `docs/change-requests/CR-001-task-layer.md`
 (spec v0.4). Each entry below records a resolution or a changed test
 expectation, per CR section 3 item 9 and section 4.
+
+### CR-001 implementation decisions
+
+- **Paths**: the CR names `data/assumptions.json` and `docs/spec-v0.3.md`;
+  this build keeps the pack in `tco-data-pack/` (D1) and moved the root spec
+  to `docs/spec.md` in the rename-only commit tagged `spec-v0.3`.
+- **D19 superseded** (item 7): the biggest-task session veto is removed.
+  Session time now marks cells Slow. `src/engine/taskTime.js` deleted as dead
+  code; its unit tests replaced by N1 to N11 and the task-layer unit tests.
+- **Verbosity-only bands** (item 6): efficiency_size_bands now carry 1.60 /
+  1.30 / 1.10 / 1.10 and cloud cheap 1.05, previous 1.00, best 1.00. The
+  pack's combined factors (2.16/1.56/1.21) and retry factor are no longer
+  used anywhere (spec 2.5, 15 item 10).
+- **Cost per completed task** (6.14): TCO including top-up over tasks
+  completed (own plus topped-up). The divide-by-coverage version is gone.
+- **N4 vs 11.10a contradiction**: with the stated p_min default 0.30, a gap 2
+  task (p 0.25) is No, but test N4 says Slow. The test runs with p_min swung
+  to its band low (0.20), inside the spec's own band. Flagged for the client:
+  either p_min should default lower or N4 should expect No.
+- **D2 convention stated once**: a week is seven days (taskLayer.js header);
+  weekly request capacity is requests per day times seven.
+- **Broker plans**: limits sourced (OpenRouter docs, 26 Sep 2026),
+  reliability 0.70 and quality High assumed, may_train flag set; USD 10
+  credit converts at the FX parameter into a month-0 upfront cost.
+- **Existing test expectations changed, with reasons**:
+  - tests/demand.test.js: efficiency band values now verbosity-only (above).
+  - tests/task-feasibility.test.js: rewritten for the task layer; the free
+    broker plan can now win typical chat (about 157 requests a week against
+    a 350 request capacity), so the old api_cheap-wins expectation is gone.
+  - tests/free-and-burst.test.js: the free tier is no longer excluded; it
+    completes the week via top-up, so the test asserts own share below one,
+    priced top-up, and honest reset lockout instead.
+  - tests/phase2.test.js: costed waiting now uses the final wait hours
+    (interactive plus top-up processing and hand-off), so the VOT delta is
+    exact again; the advice-text check expects the own-share sentence.
+  - tests/wiring.test.js: fx now moves the broker credit plan (USD upfront);
+    api.previous_ratio moves any option whose top-up uses the previous class.
+- **Item 12 approximation**: the pay-off multiple compares the best eligible
+  local option with the best paid non-local option at today's prices
+  (upfront plus monthly times horizon), no growth or discounting. Indicative.

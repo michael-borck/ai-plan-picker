@@ -82,6 +82,23 @@ if (hw) {
 }
 
 console.log('');
+console.log('Can it do your week? (statuses per task type, counts per week)');
+const taskLabels = r.options[0].task_cells.map(c => c.label);
+const counts = r.options[0].task_cells.map(c => Math.round(c.count));
+console.log('  ' + 'option'.slice(0, 30).padEnd(30) + 'own  ' + taskLabels.map((l, i) => l.slice(0, 12) + ' ' + counts[i]).join(' | '));
+for (const o of r.options) {
+  const own = Math.round((o.own_share != null ? o.own_share : 0) * 100) + '%';
+  const cells = o.task_cells.map(c => {
+    if (c.count === 0) return '-'.padEnd(14);
+    const tag = c.status === 'yes' ? 'Yes' : c.status === 'slow' ? 'Slow' : 'No';
+    const top = c.topup_class ? '+' : '';
+    return (tag + top).padEnd(14);
+  });
+  console.log('  ' + o.label.slice(0, 30).padEnd(30) + ' ' + own.padEnd(5) + cells.join(' | '));
+}
+console.log('');
+console.log('Top-up per month: ' + r.options.map(o => o.label.split(':')[0] + ' $' + (o.topup_monthly_aud || 0).toFixed(2)).join(', '));
+console.log('');
 console.log('Recommendation:');
 console.log(r.recommendation.text);
 console.log('');
