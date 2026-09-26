@@ -17,13 +17,17 @@ test('free tier ignores the model-class allowance multiplier (D16)', () => {
   assert.equal(allowancePerWindow(config, 'base', 'cheap'), 800000);
 });
 
-test('free tier cannot absorb a Typical working day', () => {
+test('free tier cannot absorb a Typical working day on its own', () => {
+  // CR-001: the free tier is no longer excluded for it. Its own share is
+  // well below one, the shortfall is topped up and priced, so it competes
+  // honestly instead of being dismissed.
   const r = compute(config, { persona: 'typical', quality_target: 'good', horizon_years: 3 });
   const free = r.options.find(o => o.id === 'sub_free');
-  assert.ok(free.coverage < 1, 'coverage ' + free.coverage.toFixed(2));
-  assert.equal(free.passes_filters, false);
-  assert.ok(free.lockout_h_per_day > 0, 'lockout waiting for reset: ' + free.lockout_h_per_day.toFixed(1));
-  assert.notEqual(r.recommendation.winner.id, 'sub_free');
+  assert.ok(free.own_share < 1, 'own share ' + free.own_share.toFixed(2));
+  assert.ok(free.topup_monthly_aud > 0, 'the shortfall is topped up and priced');
+  assert.equal(free.completed_fraction, 1, 'with top-up the week completes');
+  assert.ok(free.tco_at_horizon > 0, 'the top-up shows up in the TCO');
+  assert.ok(free.lockout_h_per_day > 0, 'reset waiting still shows: ' + free.lockout_h_per_day.toFixed(1));
 });
 
 test('free tier is enough for a light user', () => {

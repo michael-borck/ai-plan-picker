@@ -351,6 +351,7 @@ const defaults = {
   sensitivity_rules: assumptions.sensitivity_rules,
   presets: assumptions.presets,
   task_types: assumptions.task_types,
+  payoff_multiples: assumptions.payoff_multiples,
   request_plans: assumptions.request_plans,
   rules: assumptions.rules,
   features: assumptions.features,

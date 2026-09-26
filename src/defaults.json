@@ -2419,6 +2419,25 @@
    "note": "Optional task with share 0 in every mix; enable via Use my own week."
   }
  ],
+ "payoff_multiples": [
+  1.5,
+  2,
+  3,
+  4,
+  5,
+  6,
+  8,
+  10,
+  12,
+  15,
+  20,
+  25,
+  30,
+  40,
+  50,
+  75,
+  100
+ ],
  "request_plans": [
   {
    "id": "broker_free",

@@ -19,7 +19,7 @@ import { cumulativeTco, tcoAtYear, breakEvenMonth, tasksServed } from './timeSer
 import { requiredContextTokens, contextCheck } from './fitChecks.js';
 import { applySensitivityRules, rankOptions, sensitivityAnalysis, formatRecommendation } from './recommend.js';
 import { batchGain } from './speed.js';
-import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_MONTH, WEEKS_PER_YEAR, ZERO, ONE, TWO } from './units.js';
+import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_MONTH, WEEKS_PER_YEAR, ZERO, ONE, TWO, SUM_EPSILON } from './units.js';
 
 // Parameters included in the robustness sweep (spec 6.15). Curated for the
 // single-user path: every banded parameter this path actually consumes.
@@ -547,6 +547,7 @@ export function compute(config, inputs) {
     const limits = weeklyLimitsFor(config, taskAttrs[i], inp);
     const fill = fillWeekly(config, tasks, cells, limits);
     o.own_share = fill.own_share;
+    o.monthly_own_aud = o.monthly_avg_aud;
     o.task_cells = [];
     let topupMonthly = ZERO;
     let topupTasks = ZERO;
@@ -609,6 +610,16 @@ export function compute(config, inputs) {
     o.tco_at_horizon = o.tco_series.nominal[horizonMonths];
     o.tco_at_years = yearSeries(o.tco_series);
     o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
+    // Eligibility (spec 6.15, v0.4): a completed week (own share 100 percent,
+    // or 100 percent after top-up), the local speed floor, sensitivity rules,
+    // and the may-train exclusion. The old biggest-task veto (D19) is gone:
+    // slow tasks limit, they do not exclude.
+    const weekComplete = rules.top_up
+      ? o.completed_fraction >= ONE - SUM_EPSILON
+      : o.own_share >= ONE - SUM_EPSILON;
+    const speedOk = o.family !== 'local' || o.speed.decode_tps.mid >= minSpeed;
+    const mayTrainOk = !(rules.exclude_may_train && o.may_train);
+    o.passes_filters = weekComplete && speedOk && mayTrainOk;
     // Cost per completed task (spec 6.14, v0.4): TCO including top-up over
     // tasks actually completed. With top-up on and a fallback available,
     // every task completes, so options compare on the same week.
@@ -628,10 +639,34 @@ export function compute(config, inputs) {
   }
 
   const ranked = rankOptions(options);
+  ranked.passing = options.filter(o => o.passes_filters && !o.sensitivity.vetoed);
   const winner = ranked.winner;
   const runnerUp = ranked.runner_up;
   if (winner && runnerUp) {
     winner.break_even_vs_runner_up = breakEvenMonth(winner.tco_series, runnerUp.tco_series);
+  }
+
+  // Pay-off multiple (CR-001 item 12): the smallest workload multiple at
+  // which the best local option's TCO at the horizon reaches the best paid
+  // non-local option's, at today's prices. Indicative only.
+  let payoffMultiple = null;
+  if (winner) {
+    const eligible = options.filter(o => o.passes_filters && !o.sensitivity.vetoed);
+    const bestLocal = eligible.filter(o => o.family === 'local').sort((a, b) => a.tco_at_horizon - b.tco_at_horizon)[ZERO] || null;
+    const bestPaidNonLocal = eligible
+      .filter(o => o.family !== 'local' && !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free')
+      .sort((a, b) => a.tco_at_horizon - b.tco_at_horizon)[ZERO] || null;
+    if (bestLocal && bestPaidNonLocal) {
+      const tcoAt = (o, m) => o.upfront_aud + (o.family === 'api'
+        ? (o.monthly_own_aud + o.topup_monthly_aud) * m
+        : o.monthly_own_aud + o.topup_monthly_aud * m) * horizonMonths;
+      if (tcoAt(bestLocal, ONE) <= tcoAt(bestPaidNonLocal, ONE)) payoffMultiple = ONE;
+      else {
+        for (const m of config.payoff_multiples) {
+          if (tcoAt(bestLocal, m) <= tcoAt(bestPaidNonLocal, m)) { payoffMultiple = m; break; }
+        }
+      }
+    }
   }
 
   const sensitivity = (winner && !inp._skip_robustness)
@@ -648,12 +683,31 @@ export function compute(config, inputs) {
       .filter(c => c.count > ZERO)
       .slice()
       .sort((a, b) => (a.status === 'no' ? ZERO : a.status === 'slow' ? ONE : 2) - (b.status === 'no' ? ZERO : b.status === 'slow' ? ONE : 2))[0];
-    if (worst && worst.status !== 'yes') {
-      text += ' Task check: ' + worst.label + ' is ' + worst.status + ' on the winner (' + worst.reasons.join('; ') + '), topped up by ' + (worst.topup_class || 'nothing') + '.';
+    const topupNames = Array.from(new Set(winner.task_cells.filter(c => c.topup_class).map(c => c.topup_class)));
+    if (worst && worst.status === 'no') {
+      text += ' On its own it does ' + Math.round(winner.own_share * HUNDRED) + '% of your work; ' + worst.label + ' and any other gaps go to ' + (topupNames.join(' and ') || 'nothing') + ', included in the price.';
     } else if (winner.own_share < ONE) {
-      text += ' Task check: every task runs on the winner, topped up by ' + Array.from(new Set(winner.task_cells.filter(c => c.topup_class).map(c => c.topup_class))).join(' and ') + '.';
+      text += ' On its own it does ' + Math.round(winner.own_share * HUNDRED) + '% of your work; the rest goes to ' + (topupNames.join(' and ') || 'nothing') + ', included in the price.';
     } else {
-      text += ' Task check: the winner runs your whole week on its own.';
+      text += ' It runs your whole week on its own.';
+    }
+    if (winner.family === 'broker' || winner.id === 'sub_free') {
+      const paid = ranked.passing && ranked.passing.length ? ranked.passing.filter(o => !(o.upfront_aud === ZERO && o.monthly_own_aud === ZERO && o.topup_monthly_aud === ZERO) && o.family !== 'broker' && o.id !== 'sub_free' && o.tco_at_horizon > ZERO)[0] : null;
+      if (paid) {
+        text += ' The cheapest route that is not free is ' + paid.label + ' at about AUD ' + Math.round(paid.tco_at_horizon).toLocaleString('en-AU') + ' over ' + inputs.horizon_years + ' years.';
+      }
+      if (winner.family === 'broker') {
+        text += ' The free route means request limits (' + winner.request_plan.requests_per_day + ' a day), slower and less reliable replies (about ' + Math.round(winner.request_plan.reliability * HUNDRED) + '%), and data terms that may allow training on your prompts.';
+      }
+    }
+    if (winner.may_train) {
+      text += ' Note: this service may train on your data.';
+    }
+    if (payoffMultiple != null) {
+      if (payoffMultiple === ONE) text += ' A local box already pays for itself at this workload.';
+      else text += ' A local box pays off at about ' + payoffMultiple + 'x this workload.';
+    } else {
+      text += ' A local box does not pay off even at 100x this workload.';
     }
   }
 

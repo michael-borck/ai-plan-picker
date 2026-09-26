@@ -32,7 +32,11 @@ test('typical chat: the broker free plan can cover the week and wins on cost', (
   const r = compute(config, { persona: 'typical', quality_target: 'good', horizon_years: 3 });
   assert.equal(r.recommendation.winner.id, 'broker_broker_free');
   assert.ok(r.recommendation.winner.own_share >= 1);
-  assert.ok(r.recommendation.text.includes('Task check'), 'the advice names the task layer result');
+  const text = r.recommendation.text;
+  assert.ok(text.includes('On its own') || text.includes('whole week on its own'), 'the advice names the own share');
+  assert.ok(text.includes('cheapest route that is not free'), 'the free-winner line names the cheapest paid route');
+  assert.ok(text.includes('request limits'), 'the free route is explained');
+  assert.ok(text.includes('pays off') || text.includes('pays for itself'), 'the pay-off multiple line is present');
 });
 
 test('cost per completed task charges the top-up to the incomplete option', () => {
