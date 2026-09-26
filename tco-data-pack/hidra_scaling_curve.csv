@@ -1,0 +1,5 @@
+card_count,idle_w_machine_total,load_w_machine_total,total_tokens_per_sec,wh_per_1000_tokens_marginal,wh_per_1000_tokens_total,method,status,source,source_date
+1,135,285,38,1.096,2.083,"Assumes P40-class 24GB server cards (TDP 250W x 0.60 = 150W each under load, ~15W idle), Qwen 7B Q4 class model at ~38 tokens/sec per card. Machine base 120W. marginal = card only; total = (base + cards) / throughput. Real measurements pending - replace when instrumented.",estimated,derived from picker TDP + tokens/sec by LocoLabo,2026-08-31
+2,150,420,76,1.096,1.535,Same method as 1-card row. Chassis and PSU overhead amortises as cards are added - this is the consolidation curve.,estimated,derived from picker TDP + tokens/sec by LocoLabo,2026-08-31
+3,165,555,114,1.096,1.346,Same method as 1-card row. Assumes throughput scales linearly with card count (PCIe x16 open frame).,estimated,derived from picker TDP + tokens/sec by LocoLabo,2026-08-31
+4,180,690,152,1.096,1.259,Same method as 1-card row. The total Wh/1k tokens falling as cards are added is the quantitative backbone of the consolidation argument.,estimated,derived from picker TDP + tokens/sec by LocoLabo,2026-08-31

@@ -1,0 +1,11 @@
+task_type,description,input_tokens_est,output_tokens_est,power_user_share,typical_user_share,light_user_share,notes,status,source,source_date
+Quick question,Short factual or drafting question in chat,500,500,0.15,0.35,0.60,"Token counts are per completed query including context. Ranges, not measurements.",assumed,LocoLabo estimated workload mix,2026-08-31
+Document summary,Summarise or extract from a provided document,6000,800,0.25,0.30,0.20,Long inputs dominate cloud API input costs.,assumed,LocoLabo estimated workload mix,2026-08-31
+Writing / drafting,Produce or rewrite a page of business text,1000,1200,0.20,0.20,0.15,Output-heavy task.,assumed,LocoLabo estimated workload mix,2026-08-31
+Code / data assist,Explain write or debug code or spreadsheet formulas,2000,1500,0.20,0.10,0.05,Output-heavy task.,assumed,LocoLabo estimated workload mix,2026-08-31
+Analysis / RAG,Multi-document question answering with retrieved context,10000,1000,0.20,0.05,0.00,Input-heavy. This is the task that makes long-context pricing matter.,assumed,LocoLabo estimated workload mix,2026-08-31
+persona,queries_per_day,est_tokens_per_day,notes,,,,,,,,,
+Single power user,40,120000,Aggressive daily adopter using AI across most tasks,,,,,,,,,
+Typical department member,15,30000,Moderate mixed usage,,,,,,,,,
+Light user,5,6000,Occasional questions and summaries,,,,,,,,,
+adoption note,Institution scenario (500 staff): model adoption rate as a separate parameter (suggest testing 20% / 50% / 80% of staff active) rather than assuming 500 power users,,,,,,,,,,
