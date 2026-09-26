@@ -1,13 +1,25 @@
 # AI Delivery Comparator: Local vs Rented GPU vs Subscription vs API
 
-**Functional specification, v0.3 (draft, supersedes v0.2)**
+**Functional specification, v0.4 (draft, supersedes v0.3)**
 **Owner:** Michael Borck (LocoLabo)
-**Date:** 25 September 2026
+**Date:** 26 September 2026
 **Data basis:** LocoLabo TCO Data Pack (31 August 2026), plus assumptions marked below
 
 ---
 
 ## 0. What changed
+
+### v0.3 to v0.4 (change request CR-001, task layer)
+
+1. **The task is the unit of work** (new section 2.8). Every task type is checked against every option: context, agent tools, quality (success rate and retries), window or daily-request fit, and session time. Result: a status per task and option (Yes / Slow or limited / No, with a reason).
+2. **Coverage is the share of your work an option finishes itself,** by task size, filled smallest tasks first. It replaces token-per-day coverage for deciding eligibility.
+3. **Pay-as-you-go top-up** finishes whatever an option cannot, so every TCO is for the same completed week (6.11a). On by default.
+4. **Success rates replace the retry part of the efficiency factor.** The pack's verbosity factor stays (2.5). The retry factor is no longer used, to avoid counting the same weakness twice.
+5. **The single "biggest task" session veto is removed.** Session time now marks a task as Slow; it does not exclude the option.
+6. **Cached input** is excluded from local reprocessing and counted at a reduced weight against subscription allowances.
+7. **Request-limited plans** (free models via a broker) added, with a reliability setting and a "may train on your data" flag (6.10a, 11.7).
+8. **Scope:** Single user only. Small business, Enterprise and Compare sizes are deferred and hidden (1.3). Their sections stay in this document for later.
+9. New acceptance tests N1 to N11 (13.1).
 
 ### v0.2 to v0.3
 
@@ -16,6 +28,7 @@
 3. **Hardware explorer** lives inside the Single user tab; the business tabs get a fleet panel instead (section 4).
 4. **Settings** is a panel reachable from every tab, not a view; Teaching mode, GST display and horizon are global (section 1.2).
 5. **Per-tab state:** each tab keeps its own inputs, and all tabs share one calculation engine (section 9).
+6. **Restored section 6.4a** (selecting the local configuration, budget-only ladders, no-fit message), which was dropped in error from v0.2.
 
 ### v0.1 to v0.2
 
@@ -71,7 +84,9 @@ One page, four tabs, one calculation engine. The tabs differ in which inputs the
 
 ### 1.3 Scope for v1
 
-In scope: 1 to 5,000 users, AUD, generic GPU tiers (consumer, legacy server, datacentre), generic cloud classes, 1 to 5 year horizon (charts to 60 months), electricity including demand charges, admin labour, combinations, data-sensitivity rules.
+**v0.4 scope change:** v1 ships the **Single user** tab only. The Small business, Enterprise and Compare sizes tabs are hidden behind a feature flag (`features.org_tabs = false`) and their sections (3, 4.2a, 6.5, 6.6, 6.12, parts of 7) are deferred to v2. Code for them may stay but must not be reachable in the UI.
+
+Originally in scope: 1 to 5,000 users, AUD, generic GPU tiers (consumer, legacy server, datacentre), generic cloud classes, 1 to 5 year horizon (charts to 60 months), electricity including demand charges, admin labour, combinations, data-sensitivity rules.
 
 Out of scope for v1: fine-tuning and training, named-model benchmarks, colocation, hyperscaler IaaS (section 16).
 
@@ -81,15 +96,15 @@ Out of scope for v1: fine-tuning and training, named-model benchmarks, colocatio
 
 ### 2.1 The headline metric
 
-**Cost per successful task, at the quality you need, with the availability you need.** Token rate is an input to this, not the answer. Every option is compared on:
+**The cost of getting your whole week of work done, at the quality you need.** Work is counted in whole tasks (2.8), not tokens. An option that cannot finish some tasks is either topped up with pay-as-you-go (default) so every option delivers the same week, or shown with the share of work it leaves undone. Token rate is an input, not the answer. Every option is compared on:
 
 | Dimension | Unit |
 |---|---|
 | Cost over the horizon | AUD, cumulative by month (nominal, or discounted) |
-| Capacity | Standard Queries (SQ) per day, and tokens per day |
+| Capacity | Share of your week's work finished on its own (2.8), plus SQ and tokens per day |
 | Speed | Output tok/s per user (burst), and time to first token |
 | Waiting time | Hours per user per year spent waiting for answers |
-| Capability | Quality band and efficiency factor |
+| Capability | Quality level, success rate per task type (2.8) |
 | Availability | Sustained vs burst-then-lockout; peak-hour coverage |
 | Fit checks | Context window pass/fail, features checklist |
 | Data location | Premises / provider rack / provider multi-tenant |
@@ -133,9 +148,11 @@ The Frontier row assumes large open models land near the previous cloud generati
 
 In the Hardware explorer, the matched cloud class comes from the effective size of the chosen model (section 6.7).
 
-### 2.5 Efficiency factor
+### 2.5 Verbosity factor (changed in v0.4)
 
-Smaller models burn more tokens and attempts for the same job. The convention: **multiply local token demand by the combined factor; cloud Best is 1.00.** Model verbosity is part of this factor for local classes; cloud classes get a separate verbosity multiplier in Configuration (default 1.0).
+Smaller models tend to write longer answers for the same job. The pack's `equivalent_output_token_factor` is kept as a **verbosity factor** that multiplies output tokens for local size classes (cloud Best 1.00; cloud classes have their own verbosity multiplier, default 1.0).
+
+The pack's `retry_or_rerun_factor` is **no longer used in any calculation.** Retries now come from the success rates in 2.8, which depend on the task as well as the model. Using both would count the same weakness twice.
 
 ### 2.6 Thinking effort
 
@@ -147,9 +164,60 @@ Thinking applies to both local and cloud, because the same job needs the same re
 
 Always shown. Optionally costed using a **value of time per hour** (default off, because it can dominate every other cost).
 
----
+### 2.8 Task layer (new in v0.4)
 
-## 3. Organisation size model
+Work arrives as whole tasks. A plan with plenty of tokens per week can still fail a task that is bigger than one reset window, needs a longer context, needs agent tools, or needs a stronger model. The task layer checks every **task type** against every **option**.
+
+**Task types.** The pack's five task types plus Agentic and an optional Hard problem. Each has (defaults in 11.11, all assumed except the pack's token counts):
+
+| Field | Meaning |
+|---|---|
+| steps | Requests per task (1 for chat-style tasks, 20 for an agentic task) |
+| input_per_step, output_per_step | Tokens per request (pack values for the five pack tasks) |
+| cacheable_share | Share of each step's input that repeats the previous step (reused context) |
+| context_need_k | Context one step needs. Default: computed as (input_per_step + output_per_step × thinking) / 1000, rounded up; can be overridden |
+| quality_needed | Basic / Good / High / Frontier |
+| needs_agent_tools | Yes for Agentic, otherwise no |
+
+**Counts.** Tasks per day per type come from the existing demand model (persona, usage preset, usage mode, share of each task in the mix, agent tasks per day), using the existing day convention (decisions D2). An optional **"Use my own week"** mode lets the user type counts per task type per week instead.
+
+**Option attributes used by the task layer:** quality level, context window, agent tools (yes/no), reliability (share of requests that succeed, default 1.0), speed (decode, prefill, time to first token), and for metered plans the window allowance, weekly cap, or daily request limit. Quality levels: local from its capability band; cloud Cheap = Good, Previous = High, Best and Premium = Frontier, Budget offshore = High; Free chat tier and broker free models High (assumed).
+
+**Gates, in order, for task t on option o:**
+
+1. **Context:** `context_need_k(t) ≤ context_k(o)`, else **No** ("Needs 45k context, has 32k").
+2. **Agent tools:** if `needs_agent_tools(t)` and not `agent_tools(o)`, **No** ("No agent or coding tools").
+3. **Quality:** `gap = quality_needed(t) − quality(o)`; success rate p = 0.95 (gap ≤ 0), 0.60 (gap 1), 0.25 (gap 2), 0.05 (gap ≥ 3). If `p < p_min` (0.30), **No** ("Model too weak for this task").
+4. **Sensitivity:** existing option-level rules (6.15). A vetoed option shows **No** for every task, with the reason.
+5. **Single-task fit** (metered plans):
+   - Window plans: if one task's allowance use exceeds one window, it spans `ceil(units / allowance)` windows and waits `(spans − 1) × window_h`. If it exceeds the weekly cap, **No** ("One task is bigger than the weekly allowance").
+   - Request-limited plans: if one task's requests exceed the daily limit, it spans `ceil(requests / requests_per_day)` days. Requests per minute add a minimum time of `requests / requests_per_min` minutes.
+6. **Session time:** wall time above `tasks.session_tolerance_min` (interactive tasks) or `tasks.agent_tolerance_min` (agent tasks, default 120, ignored when unattended hours > 0) makes the task **Slow**, not No.
+
+A task that passes the gates is **Yes**, or **Slow or limited** if it spans windows or days, has p < 0.95, exceeds the session tolerance, or is cut back by weekly capacity. Every Slow and No carries a plain-language reason.
+
+**Per-task quantities (attempts a = 1 / (p × reliability)):**
+
+```
+new_in   = input_per_step × (1 − cacheable_share)
+cached   = input_per_step × cacheable_share
+out      = output_per_step × thinking × verbosity
+requests = a × steps
+units    = a × steps × (new_in + cached × sub_cache_weight + out)       # subscription allowance use
+api_aud  = a × steps × ((new_in + cached × (1 − cache_discount)) × p_in + out × p_out) / 1e6
+t_step   = ttft + new_in / prefill_tps + out / decode_tps                # local and rental: ttft = local_ttft
+wall     = a × steps × t_step  (+ window or day waits from gate 5)
+```
+
+Local and rented machines reprocess only `new_in`, because agent frameworks reuse the cached context. `sub_cache_weight` default 0.1 (assumed).
+
+**Weekly capacity and fill order.** Each option has a weekly limit on its own: hours available (local, rental: interactive span plus unattended hours), allowance (window plans: usable windows × allowance, capped by the weekly cap), requests (request-limited plans: requests per day × days of use), or none (API). Feasible tasks are filled **smallest first** (by units per task), until the limit is reached. The last task type may be partly done.
+
+**Coverage.** `own_share = Σ done_t × size_t / Σ count_t × size_t`, where `size_t = steps × (input_per_step + output_per_step)`. Shown as "On its own" in the grid and table.
+
+**Leftover** tasks (No, or not reached in the fill) go to top-up (6.11a) when it is on; otherwise they are reported as undone.
+
+
 
 ### 3.1 Size classes and defaults
 
@@ -248,6 +316,8 @@ Agent load is entered as agent tasks per day (default 20 when enabled) using the
 
 ### 4.4 Usage modes (task mixes)
 
+(v0.4: the modes below set the counts per task type for the task layer, 2.8. "Use my own week" replaces them with typed counts.)
+
 | Mode | Basis | Status |
 |---|---|---|
 | Chat | Pack task mix, persona shares | A (pack) |
@@ -333,6 +403,30 @@ Show low / mid / high from the η band. Multi-GPU layer split lets a bigger mode
 
 **Calibration:** fitted η against the picker's 8B benchmarks is about 0.43 to 0.55 for Maxwell/Pascal and 0.57 to 0.85 for Turing and newer. A calibration table in Configuration shows benchmark vs estimate per card.
 
+### 6.4a Selecting the local configuration
+
+(Restored from v0.1 section 5.5; omitted in error from v0.2.)
+
+**Fixed model mode.** Filter configurations with placement other than No fit and mid decode_tps at or above the minimum speed (per-user speed at peak for shared machines). Rank by the chosen objective:
+- *Fastest within budget*: highest mid tok/s, tie-break lower cost.
+- *Cheapest that meets minimum*: lowest cost, tie-break higher tok/s. This is the objective used when the budget cap is "auto".
+- *Best value*: highest tok/s per AUD.
+
+Show the top result plus up to two alternates of a different placement class where available (for example "GPU-only, AUD 1,850, 33 tok/s" and "Hybrid, AUD 1,200, 14 tok/s").
+
+**Budget only mode.** Walk a model-size ladder from largest to smallest and return the largest rung with at least one qualifying configuration, then apply the objective. Never return a size between rungs. Default ladders (editable in Settings):
+- Dense: 1, 3, 4, 7, 8, 12, 14, 24, 27, 32, 49, 70, 123
+- MoE (total / active): 16/3, 30/3, 80/3, 106/12, 117/5, 235/22
+
+**Quality target mode** (Pick a plan). The quality target (2.4) sets a size range; the engine tries the ladder rungs inside that range, smallest first, and takes the cheapest qualifying configuration.
+
+**No fit.** Never show an empty result. Display:
+
+> No configuration within AUD {budget} can run a {size}B {arch} model at {min_tps} tok/s or better.
+> Nearest options: run up to **{largest_fit}B** within this budget; or raise the budget to about **AUD {cheapest_fit_cost}**; or lower the minimum speed to {best_available_tps} tok/s; or try an MoE model of similar total size.
+
+All four suggestions are computed by the engine (search the ladder downward, search budgets upward, report the best tok/s found, and rerun with the MoE ladder), not static text.
+
 ### 6.5 Batched throughput (shared machines)
 
 With a batching engine (vLLM or similar), aggregate throughput rises with concurrent streams but saturates:
@@ -358,6 +452,8 @@ The Hidra scaling curve (independent streams across cards) applies here, not to 
 Rental fleets use the same method with rental classes.
 
 ### 6.7 Demand
+
+(v0.4: the task layer, 2.8, uses per-task-type counts. The token totals below remain for the 24-hour profile, energy and the existing capacity figures. The `efficiency(size class)` term is now the verbosity factor only, 2.5.)
 
 ```
 local_demand = (interactive + agent) tokens, output × thinking × efficiency(size class)
@@ -410,13 +506,40 @@ Overflow when demand exceeds allowance: *Unmet* (coverage below 100%), *Upgrade*
 
 **This allowance is the least certain input in the model.** It is flagged next to every subscription figure and included in the tornado chart.
 
+(v0.4: allowance use per task counts cached input at `sub_cache_weight`, 2.8. Per-task window fit and weekly-cap fit are gates in 2.8. The Free tier has no agent tools and a 32k context by default, assumed.)
+
+### 6.10a Request-limited plans (new in v0.4)
+
+Free models reached through a broker are limited by requests, not tokens.
+
+```
+weekly_requests = requests_per_day × days of use (D2 convention)
+own capacity    = tasks filled smallest first until weekly_requests is used (2.8)
+min time/task   = requests / requests_per_min minutes
+attempts        = 1 / (p × reliability)          # failed requests still count against the limit
+monthly cost    = one-off credit purchase (if any), otherwise 0
+```
+
+Two default rows: "Free models via a broker" (50 requests/day) and "Free models via a broker, after USD 10 credit" (1,000 requests/day, USD 10 upfront). Both carry the `may_train` data flag. Limits are sourced (OpenRouter documentation, checked 26 September 2026); reliability and quality are assumed.
+
 ### 6.11 API cost
 
 ```
 daily = [in × (1 − cached) × p_in + in × cached × p_in × (1 − 0.90) + out × p_out] / 1e6 × (1 + markup)
 ```
 
-Cached share defaults: 0% chat, 20% documents, 70% agentic.
+Cached share defaults: 0% chat, 20% documents, 70% agentic. (v0.4: per-task `cacheable_share` in 11.11 is used by the task layer.)
+
+### 6.11a Pay-as-you-go top-up (new in v0.4)
+
+Makes every option deliver the same completed week, so their totals compare fairly. Setting `rules.top_up` (default on).
+
+- For each leftover task (2.8), the fallback is the **cheapest API class** that passes all gates for that task with p ≥ 0.95 and passes the option's sensitivity rules. If none qualifies, the task stays undone.
+- Top-up cost is metered monthly, follows API price change and demand growth, and is added to the option's TCO series. It is shown separately as "Top-up per month".
+- Top-up processing time counts toward processing hours and waiting time, plus `tasks.handoff_min` (default 2 minutes, assumed) per topped-up task.
+- With top-up off, an option can only win if its own share is 100%.
+
+This is the v1 form of combinations. The routing matrix in 6.12 is deferred to v2.
 
 ### 6.12 Combinations
 
@@ -453,22 +576,26 @@ Monthly series, months 0 to 60, for every option and combination:
 - **Break-even point** = the month where two cumulative TCO lines cross (equivalently, where net saving first reaches 0), or "not within 5 years". For an upfront purchase, the time to reach it is the **payback period**.
 - **ROI at horizon** = net saving / capex, reported as a single percentage in the table, not as a chart.
 - **Break-even by size:** repeat at user counts 1, 2, 5, 10, 20, 50, 100, 200, 500, 1,000, 2,000, 5,000 → TCO per user per month at the horizon. Report "local breaks even with X at about N users".
-- **Cost per successful task** = TCO / (tasks served ÷ efficiency factor).
+- **Cost per completed task** = TCO (including top-up) / tasks completed over the horizon. With top-up on, tasks completed equals all tasks.
 
 ### 6.15 Recommendation
 
-1. Filter: coverage ≥ 100% (after overflow rules), per-user speed ≥ minimum, context check passes, sensitivity rules pass.
+1. Filter: completed week (own share 100%, or 100% after top-up), local speed ≥ minimum, sensitivity rules pass. (v0.4: the "biggest task" session veto, decisions D19, is removed; session time only makes cells Slow.)
 2. Rank by TCO at horizon, at the matched quality target.
 3. Robustness: swing each banded parameter to low and high one at a time. If the winner never changes, label *robust*; otherwise name the parameter that flips it and where.
 4. Plan-advice text:
 
 > For **{tab, N users, usage preset, mode}** at **{quality target}** quality with **{sensitivity}** data, choose **{winner}**. Over {horizon} years it costs about **AUD {tco}** ({per user per month}), versus AUD {runner_up_tco} for {runner_up}. It breaks even with {runner_up} at month {break_even}. Confidence: **{robust | sensitive to X}**. {one-line caveat}
+>
+> (v0.4 additions) On its own it does **{own_share}** of your work; the rest goes to **{top-up classes}**, included in the price. If the winner is a free service: also name the cheapest option that is not free, and say what the free route involves (request limits, slower and less reliable replies, data terms). If the winner carries the `may_train` flag, say so.
 
 **Sensitivity rules** (editable): *Sensitive* vetoes hourly marketplace rental, consumer subscriptions and non-enterprise API, and flags monthly rental and budget-offshore API. *Internal* flags only. *Public* applies none. Vetoed options stay visible, greyed, with the reason.
 
 ---
 
 ## 7. Outputs and charts
+
+**v0.4: "Can it do your week?" grid.** Rows are options, columns are task types (with counts). Each cell shows Yes / Slow or limited / No in text (not colour alone) with its reason, time per task, and the top-up service for leftovers. A first column shows "On its own" (own share). The grid sits directly under the plan advice in the simple view and near the top of the full workbench. The comparison table gains "On its own" and "Top-up per month" columns. The simple view gets a "Use my own week" editor for task counts, and two rules: top-up on/off, and leave out services that may train on my data.
 
 Every size tab follows the same skeleton so users can move between them without relearning the page: banner, inputs, recommendation, cumulative TCO chart, comparison table, then the tab's emphasised charts, then the rest collapsed under "More charts".
 
@@ -610,6 +737,15 @@ Misc USD 20/month (0 to 120, E). Session overhead 0.25 h, persistent storage USD
 
 Base allowance 200,000 tokens per 5 h window on Best (band 100,000 to 600,000). Weekly cap 12 full windows. Model-class multipliers Best 1.0, Previous 1.5, Cheap 4.0. Burst speed Best 60, Previous 80, Cheap 150 tok/s; TTFT 1.5 s. All A.
 
+v0.4 additions, all A unless stated: Free tier context 32k, no agent tools, quality High. Subscription cache weight 0.1.
+
+**Request-limited plans (6.10a)**
+
+| Plan | Requests/day | Requests/min | Upfront | Quality | Context | Agent tools | Reliability | Data | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| Free models via a broker | 50 | 20 | 0 | High | 128k | Yes | 0.70 | may_train | Limits S (OpenRouter docs, 26 Sep 2026); rest A |
+| Free models via a broker, after USD 10 credit | 1,000 | 20 | USD 10 | High | 128k | Yes | 0.70 | may_train | Limits S; rest A |
+
 ### 11.8 API (AUD per million tokens, E)
 
 | Class | Input | Output | Basis |
@@ -631,6 +767,31 @@ Cache discount 90%, intermediary markup 0% (0 to 15%).
 | 20 to 50B | 1.21 | Close to small-cloud (about 78) |
 | Over 50B | 1.10 | Extrapolated (80 to 85) |
 | Cloud Cheap / Previous / Best | 1.10 / 1.05 / 1.00 | 80 to 88 / A / 90+ |
+
+### 11.10a Success rates (A, new in v0.4)
+
+| Quality gap (needed − option) | Success rate p |
+|---|---|
+| 0 or less | 0.95 |
+| 1 | 0.60 |
+| 2 | 0.25 |
+| 3 or more | 0.05 |
+
+Minimum usable success rate `p_min` 0.30. Session tolerance 15 min (existing), agent tolerance 120 min, hand-off 2 min per topped-up task. All banded for the tornado: p for gap 1 (0.4 to 0.8), gap 2 (0.1 to 0.4), p_min (0.2 to 0.5).
+
+### 11.11 Task types (A except pack token counts, new in v0.4)
+
+| Task | Steps | Input/step | Output/step | Cacheable | Quality needed | Agent tools |
+|---|---|---|---|---|---|---|
+| Quick Q&A (pack) | 1 | 500 | 500 | 0% | Basic | No |
+| Document summary (pack) | 1 | 6,000 | 800 | 0% | Good | No |
+| Writing / drafting (pack) | 1 | 1,000 | 1,200 | 0% | Good | No |
+| Coding assistance (pack) | 1 | 2,000 | 1,500 | 0% | High | No |
+| Analysis / RAG (pack) | 1 | 10,000 | 1,000 | 0% | High | No |
+| Agentic task | 20 | 15,000 | 800 | 70% | High | Yes |
+| Hard problem (optional, 0 by default in the mixes) | 10 | 20,000 | 2,000 | 50% | Frontier | No |
+
+Context need is computed per step unless overridden (2.8).
 
 ### 11.10 Concurrency and time (A)
 
@@ -691,6 +852,26 @@ T6 and T7 together are the early reality check: for one typical user on flat res
 
 ---
 
+### 13.1 Task layer tests (new in v0.4)
+
+Defaults unless stated. Thinking Low (1.5) unless stated.
+
+| # | Scenario | Expected |
+|---|---|---|
+| N1 | Free chat tier, Agentic task | No, reason "No agent or coding tools". Quick Q&A on the same option: Yes |
+| N2 | Analysis/RAG with context need overridden to 45k, local context 32k | Local cell No, reason names 45k and 32k |
+| N3 | High-quality task on a Good option | p 0.60, attempts 1.67; tokens, cost and time per task all × 1.67 vs a High option at p 0.95 scaled to the same basis; cell Slow |
+| N4 | Gap 2 / gap 3 | Gap 2: p 0.25, Slow. Gap 3: No, "Model too weak for this task" |
+| N5 | Agentic step, 15,000 input, 70% cacheable, 800 output | Local reprocesses 4,500 tokens per step. Allowance use per step 4,500 + 1,050 + 1,200 = 6,750; per task 20 / 0.95 × 6,750 ≈ 142,100 units: fits one 200k Base window; spans 2 windows at a 100k allowance |
+| N6 | Free chat tier (20k window, no weekly cap), Hard problem | Slow, spans 12 windows, wall at least 55 h (10 steps × 14,000 units / 0.60 = 233,300 units) |
+| N7 | Broker free (50/day, reliability 0.70), Agentic task | 20 / (0.95 × 0.70) ≈ 30.1 requests per task: fits one day; weekly request capacity limits the count done |
+| N8 | Top-up on | Every option (with at least one qualifying API class per task) completes 100% of the week; top-up cost equals leftover tasks × cheapest qualifying API cost per task |
+| N9 | Edit `retry_or_rerun_factor` | No output changes (wiring test: the factor is unused) |
+| N10 | Local build whose Agentic task exceeds the session tolerance | Option still eligible to win; cell Slow with the time |
+| N11 | Capacity for about half the week | Tasks filled smallest first: Quick Q&A fully done before Analysis/RAG |
+
+Existing tests: change an expected value only where CR-001 explains why, and list every such change in `docs/decisions.md`.
+
 ## 14. Implementation notes
 
 - Single self-contained HTML file, vanilla JavaScript, no build step. Chart.js 4 from cdnjs (inline option for offline). Web Worker for the winner map and break-even-by-size sweeps.
@@ -724,6 +905,7 @@ T6 and T7 together are the early reality check: for one typical user on flat res
 7. **Energy per token uses 8B throughput;** the comparator recomputes from its own tok/s.
 8. **"Local models give the same answer without hidden tokens"** (efficiency file, reasoning row) is not true when running local reasoning models. Thinking should apply to both sides (2.6).
 9. **Default context vs task mix:** the Analysis/RAG task (10k input) needs more than 8k context.
+10. **Efficiency file mixes two effects.** `equivalent_output_token_factor` (verbosity) and `retry_or_rerun_factor` (failures) are separate things. v0.4 keeps the first and replaces the second with task-dependent success rates (2.5, 2.8).
 
 ---
 
