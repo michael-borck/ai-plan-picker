@@ -13,14 +13,13 @@ import { smallestRentalClass, rentalSpeed, hourlyAudPerDay, monthlyAudPerMonth }
 import { tierById, capacityPerDay, burstTps, ttftSeconds, simulateSubscriptionDay, allowancePerWindow } from './subscription.js';
 import { taskTypesForInputs, evaluateTask, fillWeekly, weeklyLimitsFor } from './taskLayer.js';
 import { cheapestQualifyingApiForTask } from './api.js';
-import { addMeteredTopup } from './timeSeries.js';
+import { addMeteredTopup, addFlatMonthly } from './timeSeries.js';
 import { apiClassInfo, cachedShareForMode, apiDailyCostAud } from './api.js';
 import { cumulativeTco, tcoAtYear, breakEvenMonth, tasksServed } from './timeSeries.js';
 import { requiredContextTokens, contextCheck } from './fitChecks.js';
-import { representativeTask, taskCompletion, taskVerdict } from './taskTime.js';
 import { applySensitivityRules, rankOptions, sensitivityAnalysis, formatRecommendation } from './recommend.js';
 import { batchGain } from './speed.js';
-import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_YEAR, ZERO, ONE, TWO } from './units.js';
+import { HORIZON_MONTHS_MAX, HORIZON_YEARS_MAX, MONTHS_PER_YEAR, SECONDS_PER_HOUR, SECONDS_PER_MINUTE, DAYS_PER_YEAR, HUNDRED, WEEKS_PER_MONTH, WEEKS_PER_YEAR, ZERO, ONE, TWO } from './units.js';
 
 // Parameters included in the robustness sweep (spec 6.15). Curated for the
 // single-user path: every banded parameter this path actually consumes.
@@ -202,7 +201,6 @@ export function compute(config, inputs) {
 
     const ttftLocalS = dm.interactive.sq_in / cand.speed.prefill_tps.mid;
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftLocalS, cand.speed.decode_tps.mid);
-    const waitCost = waitCostMonthly(waitH);
 
     const series = cumulativeTco(config, {
       kind: 'local',
@@ -215,8 +213,7 @@ export function compute(config, inputs) {
       demand_charge_aud_month: ZERO,
       life_months: lifeMonthsFor(config, cand.platform),
       residual_on: false,
-      growth,
-      extra_monthly_aud: waitCost
+      growth
     }, { months, discount_rate: discount, gst_multiplier: ONE });
 
     const capacitySqPerDay = busySInteractive + busySAgent > ZERO
@@ -257,7 +254,6 @@ export function compute(config, inputs) {
       memory: cand.memory,
       speed: cand.speed,
       watts: cand.watts,
-      wait_cost_aud_month: waitCost,
       model,
       efficiency_factor: efficiency,
       candidate: cand,
@@ -300,8 +296,7 @@ export function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
 
     const series = cumulativeTco(config, {
-      kind: 'hours', daily_aud: daily, price_change: pval(config, 'price_change.rental_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'hours', daily_aud: daily, price_change: pval(config, 'price_change.rental_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -354,8 +349,7 @@ export function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, 'best'));
 
     const series = cumulativeTco(config, {
-      kind: 'flat', monthly_aud: monthly, price_change: pval(config, 'price_change.rental_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'flat', monthly_aud: monthly, price_change: pval(config, 'price_change.rental_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -381,6 +375,7 @@ export function compute(config, inputs) {
       speed,
       rental_class: cls,
       model: canonicalModel,
+      efficiency_factor: canonicalEfficiency,
       passes_filters: coverage >= ONE && ctx.pass && speed.decode_tps.mid >= minSpeed
     }));
   }
@@ -411,8 +406,7 @@ export function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, target.cloud_class));
 
     const series = cumulativeTco(config, {
-      kind: 'flat', monthly_aud: tier.seat_aud_month, price_change: pval(config, 'price_change.subscription_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'flat', monthly_aud: tier.seat_aud_month, price_change: pval(config, 'price_change.subscription_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -469,8 +463,7 @@ export function compute(config, inputs) {
     const waitH = waitHours(dm.interactive_sq_per_day, dm.interactive, ttftSeconds(config), burstTps(config, classId === 'best' || classId === 'premium' ? 'best' : classId === 'previous' ? 'previous' : 'cheap'));
 
     const series = cumulativeTco(config, {
-      kind: 'metered', daily_aud: daily, growth, price_change: pval(config, 'price_change.api_per_year'),
-      extra_monthly_aud: waitCostMonthly(waitH)
+      kind: 'metered', daily_aud: daily, growth, price_change: pval(config, 'price_change.api_per_year')
     }, { months, discount_rate: discount, gst_multiplier: gst });
 
     const tcoHorizon = series.nominal[horizonMonths];
@@ -510,8 +503,7 @@ export function compute(config, inputs) {
     const ctx = contextCheck(plan.context_k, requiredCtx);
     const brokerWait = waitHours(dm.interactive_sq_per_day, dm.interactive, plan.ttft_s, plan.gen_tps);
     const series = cumulativeTco(config, {
-      kind: 'flat', monthly_aud: ZERO, price_change: ZERO, upfront_aud: upfrontAud,
-      extra_monthly_aud: waitCostMonthly(brokerWait)
+      kind: 'flat', monthly_aud: ZERO, price_change: ZERO, upfront_aud: upfrontAud
     }, { months, discount_rate: discount, gst_multiplier: gst });
     const tcoHorizon = series.nominal[horizonMonths];
     brokerOptions.push(optionShell({
@@ -537,43 +529,6 @@ export function compute(config, inputs) {
   // ---- Combine, sensitivity, break-evens, ranking (spec 6.14, 6.15) ----
   const options = [...localShortlist, ...rentalOptions, ...subOptions, ...apiOptions, ...brokerOptions];
 
-  // Task completion reality (spec 2.1): can this option finish a meaningful
-  // task from the user's mix in one sitting? A cheap option that cannot is
-  // not a plan, it is a waiting room.
-  // Agentic mode: one task is the whole step sequence (300k in, 16k out),
-  // though the context window only ever holds one step (fit checks, spec 8).
-  const interactiveBig = inp.usage_mode === 'agentic'
-    ? { label: 'Agentic task', input_tokens: dm.interactive.sq_in, output_tokens: dm.interactive.sq_out }
-    : representativeTask(dm.interactive.tasks);
-  const bigTask = dm.agent_tasks_per_day > ZERO
-    ? { label: 'Agent task', input_tokens: dm.agent.sq_in, output_tokens: dm.agent.sq_out }
-    : interactiveBig;
-  for (const o of options) {
-    const isComputeBound = o.family === 'local' || o.family === 'rental';
-    const genTps = isComputeBound ? o.speed.decode_tps.mid : o.per_user_tps_mid;
-    const ttftS = isComputeBound ? bigTask.input_tokens / o.speed.prefill_tps.mid : ttftSeconds(config);
-    const allowance = o.family === 'subscription'
-      ? allowancePerWindow(config, o.tier.id, o.cloud_class)
-      : null;
-    o.big_task_label = bigTask.label;
-    o.task_check = taskCompletion(config, {
-      task_in: bigTask.input_tokens,
-      task_out: bigTask.output_tokens,
-      thinking_mult: thinking,
-      efficiency: o.efficiency_factor,
-      gen_tps: genTps,
-      ttft_s: ttftS,
-      allowance_per_window: allowance,
-      window_h: o.family === 'subscription' ? pval(config, 'subscriptions.window_h') : null
-    });
-    o.task_verdict = taskVerdict(o.task_check);
-    // A task completed needs to be served AND finished: coverage divides in.
-    o.cost_per_completed_task_aud = o.coverage > ZERO && o.cost_per_task_aud != null
-      ? o.cost_per_task_aud / o.coverage
-      : null;
-    if (!o.task_check.fits_session) o.passes_filters = false;
-  }
-
   for (const o of options) {
     o.sensitivity = applySensitivityRules(config, inp.data_sensitivity, o);
   }
@@ -596,14 +551,17 @@ export function compute(config, inputs) {
     let topupMonthly = ZERO;
     let topupTasks = ZERO;
     let topupHoursWeek = ZERO;
+    let completedTasks = ZERO;
     const topupClasses = new Set();
     for (let j = ZERO; j < tasks.length; j++) {
       const t = tasks[j];
       const leftover = Math.max(ZERO, t.count_per_week - fill.done[j]);
+      completedTasks += fill.done[j];
       let topupClass = null;
       if (leftover > ZERO && rules.top_up) {
         const fallback = cheapestQualifyingApiForTask(config, t, apiAttrs, { ...inp, rules });
         if (fallback) {
+          completedTasks += leftover;
           topupClass = fallback.opt.label;
           topupClasses.add(fallback.opt.label);
           topupMonthly += leftover * fallback.cell.api_aud * WEEKS_PER_MONTH;
@@ -627,6 +585,9 @@ export function compute(config, inputs) {
     o.topup_tasks = topupTasks;
     o.topup_hours_week = topupHoursWeek;
     o.topup_monthly_aud = topupMonthly;
+    o.completed_fraction = tasks.reduce((a, t) => a + t.count_per_week, ZERO) > ZERO
+      ? completedTasks / tasks.reduce((a, t) => a + t.count_per_week, ZERO)
+      : ONE;
     if (topupMonthly > ZERO) {
       addMeteredTopup(o.tco_series, {
         monthly_aud: topupMonthly,
@@ -640,6 +601,20 @@ export function compute(config, inputs) {
       o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
     }
     o.wait_hours_per_user_year += topupHoursWeek * WEEKS_PER_YEAR;
+    // Costed waiting (spec 2.7) uses the final wait hours: interactive plus
+    // top-up processing and hand-off (spec 6.11a).
+    if (vot > ZERO) {
+      addFlatMonthly(o.tco_series, o.wait_hours_per_user_year * vot / MONTHS_PER_YEAR, { discount_rate: discount, gst_multiplier: gst });
+    }
+    o.tco_at_horizon = o.tco_series.nominal[horizonMonths];
+    o.tco_at_years = yearSeries(o.tco_series);
+    o.monthly_avg_aud = (o.tco_at_horizon - o.upfront_aud) / horizonMonths;
+    // Cost per completed task (spec 6.14, v0.4): TCO including top-up over
+    // tasks actually completed. With top-up on and a fallback available,
+    // every task completes, so options compare on the same week.
+    o.cost_per_completed_task_aud = o.tco_at_horizon > ZERO
+      ? o.tco_at_horizon / (tasksServed(dm.sq_per_day, growth, horizonMonths, o.efficiency_factor || ONE) * o.completed_fraction)
+      : ZERO;
   }
 
   if (localBest) {
@@ -724,6 +699,7 @@ function qualityLevelForModel(config, model) {
 function taskAttributesFor(config, o, inp) {
   const base = {
     id: o.id,
+    label: o.label,
     reliability: ONE,
     may_train: !!o.may_train,
     vetoed: o.sensitivity.vetoed,

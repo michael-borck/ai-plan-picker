@@ -2162,32 +2162,32 @@
     {
       "label": "Under 5B",
       "effective_b_max": 5,
-      "factor": 2.16,
+      "factor": 1.6,
       "band": "Simple extraction and drafting (55 to 67)",
       "status": "assumed",
       "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
       "source_date": "2026-08-31",
-      "note": ""
+      "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
     },
     {
       "label": "5 to 20B",
       "effective_b_max": 20,
-      "factor": 1.56,
+      "factor": 1.3,
       "band": "Routine tasks, more re-asks (68 to 71)",
       "status": "assumed",
       "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
       "source_date": "2026-08-31",
-      "note": ""
+      "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
     },
     {
       "label": "20 to 50B",
       "effective_b_max": 50,
-      "factor": 1.21,
+      "factor": 1.1,
       "band": "Close to small-cloud (about 78)",
       "status": "assumed",
       "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
       "source_date": "2026-08-31",
-      "note": ""
+      "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
     },
     {
       "label": "Over 50B",
@@ -2197,17 +2197,17 @@
       "status": "assumed",
       "source": "tco-data-pack token_efficiency_factors.csv and spec 11.9",
       "source_date": "2026-08-31",
-      "note": ""
+      "note": "Verbosity factor only (equivalent_output_token_factor). The retry factor is superseded by success rates (spec 2.8); the combined pack factor is not used."
     }
   ],
   "cloud_efficiency_factors": {
-    "cheap": 1.1,
-    "previous": 1.05,
+    "cheap": 1.05,
+    "previous": 1.0,
     "best": 1.0,
     "status": "assumed",
     "source": "spec 11.9",
     "source_date": "2026-09-25",
-    "note": "Combined factor for cloud classes. Best is the baseline."
+    "note": "Verbosity factors per cloud class (spec 2.5). Best is the baseline; small cloud writes a little more."
   },
   "sensitivity_rules": {
     "public": {

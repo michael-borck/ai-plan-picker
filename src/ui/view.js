@@ -37,7 +37,7 @@ function optionRow(o, result) {
     o.utilisation == null ? '-' : Math.round(o.utilisation * 100) + '%',
     o.cost_per_task_aud == null ? '-' : '$' + o.cost_per_task_aud.toFixed(4),
     o.cost_per_completed_task_aud == null ? '-' : '$' + o.cost_per_completed_task_aud.toFixed(4),
-    o.task_verdict || '-',
+    gridVerdict(o),
     ctx,
     o.data_location,
     flags.join(', ') || '-'
@@ -193,7 +193,7 @@ function renderPlanCards(result) {
     speed.textContent = 'Speed: about ' + Math.round(tps) + ' tok/s (' + speedFeel(tps) + ').';
     card.appendChild(speed);
     const task = document.createElement('p');
-    task.textContent = o.task_verdict || '';
+    task.textContent = gridVerdict(o);
     card.appendChild(task);
     const day = document.createElement('p');
     day.textContent = o.coverage >= 1
@@ -272,6 +272,18 @@ function renderCrossoverNotes(result) {
   const simple = $('simple-crossovers');
   if (simple) simple.textContent = crossoverStatements(result).join(' ');
 }
+
+function gridVerdict(o) {
+  if (!o.task_cells) return '';
+  const counted = o.task_cells.filter(c => c.count > ZERO_CELL);
+  const bad = counted.filter(c => c.status === 'no');
+  if (bad.length) return bad[0].label + ': ' + bad[0].reasons[0] + ', topped up by ' + (bad[0].topup_class || 'nothing') + '.';
+  const slow = counted.filter(c => c.status === 'slow');
+  if (slow.length) return slow[0].label + ': ' + slow[0].reasons.join('; ') + '.';
+  return 'Runs your whole week' + (o.own_share < 1 ? ' with pay-as-you-go top-up.' : ' on its own.');
+}
+
+const ZERO_CELL = 0;
 
 function speedFeel(tps) {
   if (tps >= 100) return 'instant feel';

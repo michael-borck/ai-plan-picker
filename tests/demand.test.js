@@ -72,18 +72,16 @@ test('demand: effective size is total for dense, sqrt(total x active) for MoE', 
   assert.ok(Math.abs(effectiveSizeB({ total_b: 30, active_b: 3, moe: true }) - Math.sqrt(90)) < 1e-9);
 });
 
-test('demand: efficiency factors follow the size bands (spec 11.9)', () => {
-  assert.equal(localEfficiencyFactor(config, 3), 2.16);
-  assert.equal(localEfficiencyFactor(config, 8), 1.56);
-  // Effective size rules (spec 6.7): MoE 30B with 3B active has effective
-  // size sqrt(90) = 9.49, which lands in the 5 to 20B band.
-  assert.equal(localEfficiencyFactor(config, Math.sqrt(90)), 1.56);
-  // A dense 30B has effective size 30, in the 20 to 50B band (the CSV's
-  // "Local 30B quantised" row at 1.21).
-  assert.equal(localEfficiencyFactor(config, 30), 1.21);
+test('demand: verbosity factors follow the size bands (spec 2.5, CR-001)', () => {
+  // v0.4: verbosity-only. The pack retry factor is superseded by success
+  // rates (spec 2.8), so the combined 2.16/1.56/1.21 become 1.60/1.30/1.10.
+  assert.equal(localEfficiencyFactor(config, 3), 1.60);
+  assert.equal(localEfficiencyFactor(config, 8), 1.30);
+  assert.equal(localEfficiencyFactor(config, Math.sqrt(90)), 1.30);
+  assert.equal(localEfficiencyFactor(config, 30), 1.10);
   assert.equal(localEfficiencyFactor(config, 70), 1.10);
   assert.equal(cloudEfficiencyFactor(config, 'best'), 1.0);
-  assert.equal(cloudEfficiencyFactor(config, 'cheap'), 1.10);
+  assert.equal(cloudEfficiencyFactor(config, 'cheap'), 1.05);
 });
 
 test('demand: thinking multipliers are 1 / 1.5 / 3 / 6', () => {

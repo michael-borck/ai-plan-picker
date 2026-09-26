@@ -231,9 +231,10 @@ export function fillWeekly(config, tasks, cells, limits) {
   let doneSize = ZERO;
   let allSize = ZERO;
 
-  for (const x of tasks) {
-    allSize += x.count_per_week * x.size;
-  }
+  tasks.forEach((t, i) => {
+    // Size comes from the evaluated cell (evaluateTask), not the raw config.
+    allSize += t.count_per_week * cells[i].size;
+  });
 
   const done = new Array(tasks.length).fill(ZERO);
   for (const x of order) {

@@ -33,7 +33,7 @@ const CASES = [
   { id: 'power.pue_single_user', moves: o => o.family === 'local' },
   { id: 'ownership.life_secondhand_years', moves: o => o.family === 'local' && o.market === 'secondhand' },
   { id: 'price_change.electricity_per_year', moves: o => o.family === 'local' },
-  { id: 'api.previous_ratio', moves: o => o.id === 'api_previous' },
+  { id: 'api.previous_ratio', moves: o => o.id === 'api_previous' || o.topup_monthly_aud > 0 },
   {
     id: 'api.cached_share_documents',
     moves: o => o.family === 'api',

@@ -143,3 +143,19 @@ export function addMeteredTopup(series, { monthly_aud, growth, price_change, dis
     series.pv[m] += runningPv;
   }
 }
+
+// Add a flat monthly cost to an existing cumulative series in place (used
+// for costed waiting time after top-up hours are known).
+export function addFlatMonthly(series, monthly_aud, { discount_rate, gst_multiplier }) {
+  const gst = gst_multiplier != null ? gst_multiplier : ONE;
+  const disc = discount_rate != null ? discount_rate : ZERO;
+  let running = ZERO;
+  let runningPv = ZERO;
+  for (let m = ONE; m <= series.months; m++) {
+    const inc = monthly_aud * gst;
+    running += inc;
+    runningPv += inc / Math.pow(ONE + disc, m / MONTHS_PER_YEAR);
+    series.nominal[m] += running;
+    series.pv[m] += runningPv;
+  }
+}

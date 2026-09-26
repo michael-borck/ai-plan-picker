@@ -28,16 +28,19 @@ export function apiClassInfo(config, class_id) {
   if (class_id === 'previous') {
     const ratio = pval(config, 'api.previous_ratio');
     const best = table.best;
+    const metaPrev = meta;
     return {
       id: class_id,
-      label: meta.label,
+      label: metaPrev.label,
       price_aud_per_1m_input: Math.round(best.price_aud_per_1m_input * ratio * 100) / 100,
       price_aud_per_1m_output: Math.round(best.price_aud_per_1m_output * ratio * 100) / 100,
       context_k: pval(config, CLASS_CONTEXT_PARAMS.previous),
-      status: meta.status,
-      source: meta.source,
-      source_date: meta.source_date,
-      note: meta.note
+      quality_level: metaPrev.quality_level,
+      may_train: !!metaPrev.may_train,
+      status: metaPrev.status,
+      source: metaPrev.source,
+      source_date: metaPrev.source_date,
+      note: metaPrev.note
     };
   }
 
@@ -49,6 +52,8 @@ export function apiClassInfo(config, class_id) {
     price_aud_per_1m_input: row.price_aud_per_1m_input,
     price_aud_per_1m_output: row.price_aud_per_1m_output,
     context_k: pval(config, contextParam),
+    quality_level: meta.quality_level,
+    may_train: !!meta.may_train,
     status: meta.status,
     source: meta.source,
     source_date: meta.source_date,
